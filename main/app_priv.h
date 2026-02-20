@@ -46,8 +46,9 @@ extern "C" {
 // Long press duration (ms) before factory reset is triggered on MID button
 #define FACTORY_RESET_LONG_PRESS_MS  5000
 
-// Brief LED flash duration (ms) on button press feedback
-#define LED_PRESS_FLASH_MS           80
+// LED blink half-periods (ms) — time LED spends in each on/off state
+#define LED_BLINK_FAST_MS    250   // 2 Hz  — uncommissioned / pairing mode
+#define LED_BLINK_SLOW_MS   1000   // 0.5 Hz — commissioned
 
 // ---------------------------------------------------------------------------
 // Driver API
@@ -67,9 +68,23 @@ typedef void *app_driver_handle_t;
 esp_err_t app_driver_buttons_init(uint16_t *endpoint_ids);
 
 /**
- * @brief Set the status LED on or off.
+ * @brief Set the status LED on or off directly (raw GPIO, no timer).
+ *        Used by app_reset for its blocking countdown sequence.
  */
 void app_driver_led_set(bool on);
+
+/**
+ * @brief Start (or change rate of) the LED blink timer.
+ *
+ * @param half_period_ms  Time (ms) the LED stays on or off per half-cycle.
+ *                        Use LED_BLINK_FAST_MS or LED_BLINK_SLOW_MS.
+ */
+void app_driver_led_blink_start(uint32_t half_period_ms);
+
+/**
+ * @brief Stop the LED blink timer and turn the LED off.
+ */
+void app_driver_led_blink_stop(void);
 
 #ifdef __cplusplus
 }

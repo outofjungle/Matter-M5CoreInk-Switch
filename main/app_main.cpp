@@ -52,7 +52,7 @@ static void app_event_cb(const ChipDeviceEvent *event, intptr_t arg)
 
     case chip::DeviceLayer::DeviceEventType::kCommissioningComplete:
         ESP_LOGI(TAG, "Commissioning complete");
-        app_driver_led_set(false);
+        app_driver_led_blink_start(LED_BLINK_SLOW_MS);
         break;
 
     case chip::DeviceLayer::DeviceEventType::kFailSafeTimerExpired:
@@ -69,12 +69,12 @@ static void app_event_cb(const ChipDeviceEvent *event, intptr_t arg)
 
     case chip::DeviceLayer::DeviceEventType::kCommissioningWindowOpened:
         ESP_LOGI(TAG, "Commissioning window opened");
-        app_driver_led_set(true);   // LED on = pairing mode
+        app_driver_led_blink_start(LED_BLINK_FAST_MS);
         break;
 
     case chip::DeviceLayer::DeviceEventType::kCommissioningWindowClosed:
         ESP_LOGI(TAG, "Commissioning window closed");
-        app_driver_led_set(false);
+        app_driver_led_blink_stop();
         break;
 
     case chip::DeviceLayer::DeviceEventType::kFabricRemoved: {
@@ -131,9 +131,9 @@ static esp_err_t app_identification_cb(identification::callback_type_t type,
 
     if (type == identification::callback_type_t::START ||
         type == identification::callback_type_t::EFFECT) {
-        app_driver_led_set(true);
+        app_driver_led_blink_start(LED_BLINK_FAST_MS);
     } else if (type == identification::callback_type_t::STOP) {
-        app_driver_led_set(false);
+        app_driver_led_blink_stop();
     }
 
     return ESP_OK;
@@ -238,7 +238,8 @@ extern "C" void app_main()
                          ESP_LOGE(TAG, "Failed to start Matter: %d", err));
 
     if (!chip::DeviceLayer::ConnectivityMgr().IsWiFiStationProvisioned()) {
-        ESP_LOGI(TAG, "WiFi not yet provisioned — BLE commissioning window open");
+        ESP_LOGI(TAG, "WiFi not yet provisioned — commissioning window open");
+        app_driver_led_blink_start(LED_BLINK_FAST_MS);
     }
 
     const esp_app_desc_t *app_desc = esp_app_get_description();

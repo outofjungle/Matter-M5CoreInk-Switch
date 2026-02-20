@@ -12,6 +12,7 @@
 #include <driver/gpio.h>
 #include <esp_log.h>
 #include <esp_matter.h>
+#include <esp_timer.h>
 #include <iot_button.h>
 
 // CHIP event logging
@@ -53,6 +54,54 @@ static void update_current_position(uint16_t ep_id, uint8_t position)
 }
 
 // ---------------------------------------------------------------------------
+// LED — low-level primitive (file-local)
+// ---------------------------------------------------------------------------
+
+void app_driver_led_set(bool on)
+{
+    gpio_set_level(LED_PIN, on ? 1 : 0);
+}
+
+static void led_set(bool on) { app_driver_led_set(on); }
+
+// ---------------------------------------------------------------------------
+// LED blink (esp_timer)
+// ---------------------------------------------------------------------------
+
+static esp_timer_handle_t s_blink_timer = NULL;
+static bool s_blink_state = false;
+
+static void blink_timer_cb(void *arg)
+{
+    s_blink_state = !s_blink_state;
+    led_set(s_blink_state);
+}
+
+void app_driver_led_blink_start(uint32_t half_period_ms)
+{
+    if (s_blink_timer == NULL) {
+        const esp_timer_create_args_t args = {
+            .callback = blink_timer_cb,
+            .name     = "led_blink",
+        };
+        esp_timer_create(&args, &s_blink_timer);
+    } else {
+        esp_timer_stop(s_blink_timer);  // may return error if not running; ignore
+    }
+    s_blink_state = false;
+    led_set(false);
+    esp_timer_start_periodic(s_blink_timer, (uint64_t)half_period_ms * 1000ULL);
+}
+
+void app_driver_led_blink_stop(void)
+{
+    if (s_blink_timer) {
+        esp_timer_stop(s_blink_timer);
+    }
+    led_set(false);
+}
+
+// ---------------------------------------------------------------------------
 // Button callbacks
 // ---------------------------------------------------------------------------
 
@@ -64,7 +113,7 @@ static void btn_press_down_cb(void *arg, void *data)
     ESP_LOGD(TAG, "Switch[%d] press down (ep %d)", ctx->index, ctx->endpoint_id);
 
     // Brief LED flash for tactile feedback
-    app_driver_led_set(true);
+    led_set(true);
     // Non-blocking: LED will be cleared in press_up_cb
 
     update_current_position(ctx->endpoint_id, 1);
@@ -82,7 +131,7 @@ static void btn_press_up_cb(void *arg, void *data)
 {
     btn_ctx_t *ctx = static_cast<btn_ctx_t *>(data);
 
-    app_driver_led_set(false);
+    led_set(false);
 
     // Suppress ShortRelease if a long-press (factory reset) was in progress
     if (ctx->long_press_active) {
@@ -111,15 +160,6 @@ static void btn_long_press_mark_cb(void *arg, void *data)
 }
 
 // ---------------------------------------------------------------------------
-// LED
-// ---------------------------------------------------------------------------
-
-void app_driver_led_set(bool on)
-{
-    gpio_set_level(LED_PIN, on ? 1 : 0);
-}
-
-// ---------------------------------------------------------------------------
 // Public init
 // ---------------------------------------------------------------------------
 
@@ -140,7 +180,7 @@ esp_err_t app_driver_buttons_init(uint16_t *endpoint_ids)
         .intr_type    = GPIO_INTR_DISABLE,
     };
     gpio_config(&led_cfg);
-    app_driver_led_set(false);
+    led_set(false);
 
     for (int i = 0; i < NUM_SWITCHES; i++) {
         s_ctx[i].endpoint_id      = endpoint_ids[i];
