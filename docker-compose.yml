@@ -1,0 +1,38 @@
+services:
+  esp-idf:
+    # Build custom image based on ESP-Matter with additional dependencies
+    # Base: espressif/esp-matter:release-v1.5_idf_v5.4.1
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: esp-matter-dev:latest
+
+    volumes:
+      # Mount project source code (includes build directory)
+      - .:/project
+
+    # Set default working directory
+    # Note: idf.py commands in Makefile still use -C /project explicitly
+    # because ESP-IDF activation may change the working directory
+    working_dir: /project
+
+    environment:
+      # Target chip (ESP32-PICO-D4 uses esp32 target)
+      - IDF_TARGET=esp32
+      # ESP-Matter SDK path (in official Docker image)
+      - ESP_MATTER_PATH=/opt/espressif/esp-matter
+      # Git safe directory (prevents git ownership warnings)
+      - IDF_GIT_SAFE_DIR=/project
+
+    # USB Device Access:
+    # - Docker for Mac does NOT support USB device pass-through
+    # - This project uses host esptool for flashing (see Makefile)
+    # - Build in Docker, flash with native macOS tools
+    # - See docs/IDF-DOCKER-MAC.md for details
+    #
+    # On Linux, you can optionally enable direct device access:
+    # devices:
+    #   - /dev/ttyUSB0:/dev/ttyUSB0
+
+    stdin_open: true
+    tty: true

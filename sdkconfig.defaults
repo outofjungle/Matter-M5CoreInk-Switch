@@ -1,0 +1,16 @@
+# M5Stack Core Ink - ESP32-PICO-D4 base configuration
+# Target: esp32 (Xtensa LX6, 4 MB embedded SiP flash)
+#
+# This is the minimal config for the LED blink verification build.
+# Matter-specific options will be added in a later phase.
+
+CONFIG_IDF_TARGET="esp32"
+
+# Logging
+CONFIG_LOG_DEFAULT_LEVEL_INFO=y
+
+# Use nano format (saves ~47 KB flash)
+CONFIG_NEWLIB_NANO_FORMAT=y
+
+# Main task stack (adequate for blink; Matter will need more)
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=4096
