@@ -49,8 +49,8 @@ CONFIG_LWIP_MULTICAST_PING=y
 CONFIG_USE_MINIMAL_MDNS=n
 CONFIG_ENABLE_EXTENDED_DISCOVERY=y
 
-# OTA requestor
-CONFIG_ENABLE_OTA_REQUESTOR=y
+# OTA requestor (disabled — reduces heap pressure; re-enable when stable)
+CONFIG_ENABLE_OTA_REQUESTOR=n
 
 # mbedTLS
 CONFIG_MBEDTLS_HKDF_C=y
@@ -74,18 +74,15 @@ CONFIG_NEWLIB_NANO_FORMAT=y
 # 4 dynamic endpoints: 3 switches + 1 spare
 CONFIG_ESP_MATTER_MAX_DYNAMIC_ENDPOINT_COUNT=4
 
-# Move BT controller to flash (saves ~19 KB IRAM)
-CONFIG_BT_CTRL_RUN_IN_FLASH_ONLY=y
-
 # Move FreeRTOS to flash (saves ~8 KB IRAM)
 CONFIG_FREERTOS_PLACE_FUNCTIONS_INTO_FLASH=y
 
 # SPI flash implementation from ROM (saves ~9.5 KB IRAM)
 CONFIG_SPI_FLASH_ROM_IMPL=y
 
-# Reduced stack sizes (tight but sufficient — adjust if stack overflow occurs)
+# Stack sizes
 CONFIG_ESP_MAIN_TASK_STACK_SIZE=3072
-CONFIG_CHIP_TASK_STACK_SIZE=6144
+CONFIG_CHIP_TASK_STACK_SIZE=10240
 
 # Log level
 CONFIG_LOG_DEFAULT_LEVEL_INFO=y
