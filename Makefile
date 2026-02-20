@@ -138,13 +138,13 @@ print(f'{d} {p}')" > /tmp/m5multipass_pairing.txt
 			-d $$D -p $$P \
 			-o /project/$(PAIRING_CONFIG) \
 			--qr-image /project/$(PAIRING_QR_IMAGE) \
-			--no-confirm; \
-		echo ""; \
-		echo "Files updated:"; \
-		echo "  $(PAIRING_CONFIG)"; \
-		echo "  $(PAIRING_QR_IMAGE)"; \
-		echo ""; \
-		echo "Rebuild and flash to apply: make rebuild && make flash"; \
+			--no-confirm \
+		&& echo "" \
+		&& echo "Files updated:" \
+		&& echo "  $(PAIRING_CONFIG)" \
+		&& echo "  $(PAIRING_QR_IMAGE)" \
+		&& echo "" \
+		&& echo "Rebuild and flash to apply: make rebuild && make flash"; \
 	else \
 		echo "Aborted."; \
 		rm -f /tmp/m5multipass_pairing.txt; \

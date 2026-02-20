@@ -18,6 +18,7 @@
 // CHIP event logging
 #include <app/EventLogging.h>
 #include <app-common/zap-generated/cluster-objects.h>
+#include <esp_matter_core.h>
 
 #include "app_priv.h"
 #include "app_reset.h"
@@ -116,13 +117,16 @@ static void btn_press_down_cb(void *arg, void *data)
     led_set(true);
     // Non-blocking: LED will be cleared in press_up_cb
 
-    update_current_position(ctx->endpoint_id, 1);
+    {
+        esp_matter::lock::ScopedChipStackLock chip_lock(portMAX_DELAY);
+        update_current_position(ctx->endpoint_id, 1);
 
-    // Emit InitialPress event
-    Switch::Events::InitialPress::Type event_data;
-    event_data.newPosition = 1;
-    chip::EventNumber event_number;
-    chip::app::LogEvent(event_data, ctx->endpoint_id, event_number);
+        // Emit InitialPress event
+        Switch::Events::InitialPress::Type event_data;
+        event_data.newPosition = 1;
+        chip::EventNumber event_number;
+        chip::app::LogEvent(event_data, ctx->endpoint_id, event_number);
+    }
 
     ESP_LOGI(TAG, "Switch[%d] InitialPress sent", ctx->index);
 }
@@ -141,13 +145,16 @@ static void btn_press_up_cb(void *arg, void *data)
 
     ESP_LOGD(TAG, "Switch[%d] press up (ep %d)", ctx->index, ctx->endpoint_id);
 
-    update_current_position(ctx->endpoint_id, 0);
+    {
+        esp_matter::lock::ScopedChipStackLock chip_lock(portMAX_DELAY);
+        update_current_position(ctx->endpoint_id, 0);
 
-    // Emit ShortRelease event
-    Switch::Events::ShortRelease::Type event_data;
-    event_data.previousPosition = 1;
-    chip::EventNumber event_number;
-    chip::app::LogEvent(event_data, ctx->endpoint_id, event_number);
+        // Emit ShortRelease event
+        Switch::Events::ShortRelease::Type event_data;
+        event_data.previousPosition = 1;
+        chip::EventNumber event_number;
+        chip::app::LogEvent(event_data, ctx->endpoint_id, event_number);
+    }
 
     ESP_LOGI(TAG, "Switch[%d] ShortRelease sent", ctx->index);
 }

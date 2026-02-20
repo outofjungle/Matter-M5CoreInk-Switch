@@ -14,9 +14,10 @@ RUN apt-get update && apt-get install -y \
     libfreetype6-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python dependencies for pairing code generation
-RUN pip3 install --break-system-packages qrcode pillow ecdsa 2>/dev/null || \
-    pip3 install qrcode pillow ecdsa
+# Install Python dependencies for pairing code generation into the IDF venv.
+# The IDF entrypoint activates /opt/espressif/tools/python_env/idf5.4_py3.12_env/,
+# so system-level pip installs are invisible at runtime — use the venv pip directly.
+RUN /opt/espressif/tools/python_env/idf5.4_py3.12_env/bin/pip install qrcode pillow
 
 # Set working directory (matches docker-compose.yml)
 WORKDIR /project
