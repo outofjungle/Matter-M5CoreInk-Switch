@@ -8,7 +8,7 @@
 #   make flash, make erase, make monitor
 
 .PHONY: all build clean fullclean rebuild flash monitor erase \
-        menuconfig shell image-build image-pull image-status help
+        menuconfig generate-pairing shell image-build image-pull image-status help
 
 # Default target
 all: build
@@ -25,6 +25,10 @@ TARGET := esp32
 #   /dev/cu.SLAB_USBtoUART (CP2104 on older macOS)
 #   /dev/ttyUSB*           (Linux)
 PORT ?= $(shell ls /dev/cu.* /dev/ttyUSB* /dev/ttyACM* 2>/dev/null | grep -E 'usbserial|SLAB_USB|ttyUSB|ttyACM' | head -1)
+
+# Pairing configuration
+PAIRING_CONFIG  := main/include/CHIPPairingConfig.h
+PAIRING_QR_IMAGE := docs/img/pairing_qr.png
 
 # Logging configuration
 LOGS_DIR := logs
@@ -107,11 +111,53 @@ fullclean: ## Full clean (removes build, sdkconfig, managed_components)
 	rm -rf build managed_components sdkconfig sdkconfig.old dependencies.lock
 
 #------------------------------------------------------------------------------
+# Pairing code generation
+#------------------------------------------------------------------------------
+
+generate-pairing: ## Generate random pairing code, QR image, and update CHIPPairingConfig.h
+	@echo "Generating random pairing configuration..."
+	@python3 -c "\
+import random; \
+invalid={0,11111111,22222222,33333333,44444444,55555555,66666666,77777777,88888888,99999999,12345678,87654321}; \
+d=random.randint(0,4095); \
+p=random.randint(1,99999999); \
+exec('while p in invalid: p=random.randint(1,99999999)'); \
+print(f'{d} {p}')" > /tmp/m5multipass_pairing.txt
+	@D=$$(awk '{print $$1}' /tmp/m5multipass_pairing.txt); \
+	P=$$(awk '{print $$2}' /tmp/m5multipass_pairing.txt); \
+	echo "============================================================"; \
+	echo "Pairing Configuration Changes"; \
+	echo "============================================================"; \
+	printf "  Discriminator: 0x%03X (%d)\n" $$D $$D; \
+	echo "  Passcode:      $$P"; \
+	echo ""; \
+	read -p "Proceed with these changes? [y/N]: " REPLY; \
+	if [ "$$REPLY" = "y" ] || [ "$$REPLY" = "Y" ]; then \
+		echo "Generating configuration..."; \
+		$(DOCKER_RUN) python3 /project/scripts/generate_pairing_config.py \
+			-d $$D -p $$P \
+			-o /project/$(PAIRING_CONFIG) \
+			--qr-image /project/$(PAIRING_QR_IMAGE) \
+			--no-confirm; \
+		echo ""; \
+		echo "Files updated:"; \
+		echo "  $(PAIRING_CONFIG)"; \
+		echo "  $(PAIRING_QR_IMAGE)"; \
+		echo ""; \
+		echo "Rebuild and flash to apply: make rebuild && make flash"; \
+	else \
+		echo "Aborted."; \
+		rm -f /tmp/m5multipass_pairing.txt; \
+		exit 1; \
+	fi; \
+	rm -f /tmp/m5multipass_pairing.txt
+
+#------------------------------------------------------------------------------
 # Help
 #------------------------------------------------------------------------------
 
 help: ## Show this help
-	@echo "Matter M5CoreInk Switch - Docker Build Environment"
+	@echo "M5 Multipass - Matter Generic Switch (ESP32-PICO-D4)"
 	@echo ""
 	@echo "BUILD (Docker):"
 	@echo "  make build           Build firmware in Docker"
@@ -124,6 +170,11 @@ help: ## Show this help
 	@echo "  make monitor         Monitor serial output (logs to logs/)"
 	@echo "  make erase           Erase flash (factory reset)"
 	@echo ""
+	@echo "PAIRING:"
+	@echo "  make generate-pairing  Generate unique pairing code + QR image"
+	@echo "                         Updates: $(PAIRING_CONFIG)"
+	@echo "                                  $(PAIRING_QR_IMAGE)"
+	@echo ""
 	@echo "DOCKER MANAGEMENT:"
 	@echo "  make image-build     Build Docker image (~10-20 min, one-time)"
 	@echo "  make image-pull      Pull base Docker image"
@@ -132,6 +183,12 @@ help: ## Show this help
 	@echo ""
 	@echo "UTILITIES:"
 	@echo "  make fullclean       Full clean (build, sdkconfig, deps)"
+	@echo ""
+	@echo "COMMISSIONING WORKFLOW:"
+	@echo "  1. make generate-pairing   # Generate unique QR code"
+	@echo "  2. make build              # Build firmware"
+	@echo "  3. make flash              # Flash to device"
+	@echo "  4. Scan docs/img/pairing_qr.png in Apple Home"
 	@echo ""
 	@echo "Current PORT: $(PORT)"
 	@echo "Override port: make flash PORT=/dev/cu.usbserial-0001"

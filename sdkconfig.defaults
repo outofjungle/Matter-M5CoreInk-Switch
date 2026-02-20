@@ -1,16 +1,94 @@
-# M5Stack Core Ink - ESP32-PICO-D4 base configuration
-# Target: esp32 (Xtensa LX6, 4 MB embedded SiP flash)
-#
-# This is the minimal config for the LED blink verification build.
-# Matter-specific options will be added in a later phase.
+# M5 Multipass - SDK Configuration
+# ESP32-PICO-D4 with WiFi-only Matter transport
 
+# Target
 CONFIG_IDF_TARGET="esp32"
 
-# Logging
-CONFIG_LOG_DEFAULT_LEVEL_INFO=y
+# Custom CHIP project config
+CONFIG_CHIP_PROJECT_CONFIG="main/include/CHIPProjectConfig.h"
 
-# Use nano format (saves ~47 KB flash)
+# Matter Device Identity (test IDs — change for production certification)
+# Vendor ID: 0xFFF1 = Espressif test vendor
+# Product ID: 0x8001 = test product
+CONFIG_DEVICE_VENDOR_ID=0xFFF1
+CONFIG_DEVICE_PRODUCT_ID=0x8001
+
+# Flash size (4MB embedded SiP in PICO-D4)
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+
+# Partition table
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+CONFIG_PARTITION_TABLE_OFFSET=0xC000
+
+# BLE (required for Matter commissioning over BLE)
+CONFIG_BT_ENABLED=y
+CONFIG_BT_BLUEDROID_ENABLED=n
+CONFIG_BT_NIMBLE_ENABLED=y
+CONFIG_BT_NIMBLE_EXT_ADV=n
+CONFIG_BT_NIMBLE_HCI_EVT_BUF_SIZE=70
+CONFIG_BT_NIMBLE_ENABLE_CONN_REATTEMPT=n
+CONFIG_BT_NIMBLE_MAX_CONNECTIONS=1
+# Disable unused NimBLE roles to save memory
+CONFIG_BT_NIMBLE_ROLE_CENTRAL=n
+CONFIG_BT_NIMBLE_ROLE_OBSERVER=n
+CONFIG_USE_BLE_ONLY_FOR_COMMISSIONING=n
+
+# Disable Thread (ESP32-PICO-D4 has no 802.15.4 radio)
+CONFIG_OPENTHREAD_ENABLED=n
+
+# Enable WiFi station mode
+CONFIG_ENABLE_WIFI_STATION=y
+
+# LwIP
+CONFIG_LWIP_IPV6_AUTOCONFIG=n
+CONFIG_LWIP_IPV6_NUM_ADDRESSES=8
+CONFIG_LWIP_MULTICAST_PING=y
+
+# mDNS
+CONFIG_USE_MINIMAL_MDNS=n
+CONFIG_ENABLE_EXTENDED_DISCOVERY=y
+
+# OTA requestor
+CONFIG_ENABLE_OTA_REQUESTOR=y
+
+# mbedTLS
+CONFIG_MBEDTLS_HKDF_C=y
+
+# libsodium
+CONFIG_LIBSODIUM_USE_MBEDTLS_SHA=y
+
+# FreeRTOS
+CONFIG_FREERTOS_ENABLE_BACKWARD_COMPATIBILITY=y
+
+# Matter shell (disabled — saves ~30 KB RAM)
+CONFIG_ENABLE_CHIP_SHELL=n
+
+# Disable ESP Insights
+CONFIG_ESP_INSIGHTS_ENABLED=n
+
+# ====== Memory Optimizations ======
+# newlib nano format (smaller printf footprint)
 CONFIG_NEWLIB_NANO_FORMAT=y
 
-# Main task stack (adequate for blink; Matter will need more)
-CONFIG_ESP_MAIN_TASK_STACK_SIZE=4096
+# 4 dynamic endpoints: 3 switches + 1 spare
+CONFIG_ESP_MATTER_MAX_DYNAMIC_ENDPOINT_COUNT=4
+
+# Move BT controller to flash (saves ~19 KB IRAM)
+CONFIG_BT_CTRL_RUN_IN_FLASH_ONLY=y
+
+# Move FreeRTOS to flash (saves ~8 KB IRAM)
+CONFIG_FREERTOS_PLACE_FUNCTIONS_INTO_FLASH=y
+
+# SPI flash implementation from ROM (saves ~9.5 KB IRAM)
+CONFIG_SPI_FLASH_ROM_IMPL=y
+
+# Reduced stack sizes (tight but sufficient — adjust if stack overflow occurs)
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=3072
+CONFIG_CHIP_TASK_STACK_SIZE=6144
+
+# Log level
+CONFIG_LOG_DEFAULT_LEVEL_INFO=y
+
+# Optimize for size
+CONFIG_COMPILER_OPTIMIZATION_SIZE=y

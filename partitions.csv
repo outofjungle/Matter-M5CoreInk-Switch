@@ -1,0 +1,12 @@
+# M5 Multipass - Flash Partition Table
+# ESP32-PICO-D4: 4 MB embedded SiP flash (0x400000 total)
+# Partition table at 0xC000 (CONFIG_PARTITION_TABLE_OFFSET)
+#
+# Name,         Type, SubType,  Offset,   Size,    Flags
+nvs,            data, nvs,      0xD000,   0xC000,
+nvs_keys,       data, nvs_keys, 0x19000,  0x1000,
+otadata,        data, ota,      0x1A000,  0x2000,
+phy_init,       data, phy,      0x1C000,  0x1000,
+ota_0,          app,  ota_0,    0x20000,  0x1E0000,
+ota_1,          app,  ota_1,    0x200000, 0x1E0000,
+fctry,          data, nvs,      0x3E0000, 0x6000,
