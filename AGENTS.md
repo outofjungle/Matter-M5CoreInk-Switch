@@ -12,6 +12,10 @@ bd close <id>         # Complete work
 bd sync               # Sync with git
 ```
 
+## Build Policy
+
+**Never offer to build or run `make build`.** The user builds manually and will report back with any errors. Only fix code — do not initiate, background, or wait on builds.
+
 ## Git Workflow
 
 **IMPORTANT: Claude does NOT push to remote. User pushes manually.**

@@ -209,7 +209,7 @@ extern "C" void app_main()
         // Feature map: MS (MomentarySwitch=0x02) | MSR (MomentarySwitchRelease=0x04)
         // This enables InitialPress + ShortRelease events, required for Apple Home
         // single-press automations.
-        sw_cfg.switch_cluster.feature_map         = 0x06;
+        sw_cfg.switch_cluster.feature_flags       = 0x06;  // MS | MSR
         sw_cfg.switch_cluster.number_of_positions = 2;
         sw_cfg.switch_cluster.current_position    = 0;
 
