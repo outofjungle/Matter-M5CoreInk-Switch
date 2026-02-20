@@ -24,7 +24,7 @@ TARGET := esp32
 #   /dev/cu.usbserial-*   (CP2104 or CH9102F on macOS Ventura+)
 #   /dev/cu.SLAB_USBtoUART (CP2104 on older macOS)
 #   /dev/ttyUSB*           (Linux)
-PORT ?= $(shell ls /dev/cu.* /dev/ttyUSB* /dev/ttyACM* 2>/dev/null | grep -E 'usbserial|SLAB_USB|ttyUSB|ttyACM' | head -1)
+PORT ?= $(shell ls /dev/cu.usbserial* /dev/cu.wchusbserial* /dev/cu.SLAB_USBtoUART* /dev/ttyUSB* /dev/ttyACM* 2>/dev/null | head -1)
 
 # Pairing configuration
 PAIRING_CONFIG  := main/include/CHIPPairingConfig.h
@@ -76,7 +76,7 @@ menuconfig: ## Open SDK configuration in Docker (interactive)
 #------------------------------------------------------------------------------
 
 flash: ## Flash firmware to device using host esptool
-	@test -n "$(PORT)" || (echo "Error: No device found. Connect Core Ink via USB and check 'ls /dev/cu.usbserial*'" && exit 1)
+	@test -n "$(PORT)" || (echo "Error: No device found. Set PORT=<device>" && exit 1)
 	@test -f build/flash_args || (echo "Error: Build first with 'make build'" && exit 1)
 	cd build && esptool --port $(PORT) write_flash @flash_args
 
@@ -84,20 +84,17 @@ erase: ## Erase flash (factory reset) using host esptool
 	@test -n "$(PORT)" || (echo "Error: No device found. Set PORT=<device>" && exit 1)
 	esptool --port $(PORT) erase_flash
 
-monitor: ## Serial monitor with logging (esp-idf-monitor: Ctrl+], screen: Ctrl+A K)
+monitor: ## Serial monitor with logging to logs/ (Ctrl+A K to exit)
 	@test -n "$(PORT)" || (echo "Error: No device found. Set PORT=<device>" && exit 1)
 	@mkdir -p $(LOGS_DIR)
-	@echo "Logging to $(LOG_FILE)"
-	@if command -v esp-idf-monitor >/dev/null 2>&1; then \
-		echo "Using esp-idf-monitor (Ctrl+] to exit)"; \
-		esp-idf-monitor --port $(PORT) build/M5CoreInk-Switch.elf 2>&1 | tee $(LOG_FILE); \
-	else \
-		echo "Using screen for monitoring (Ctrl+A then K to exit)"; \
-		stty -f $(PORT) 115200 raw -echo; \
-		cat $(PORT) | while IFS= read -r line; do \
-			echo "$$(date '+%H:%M:%S.%3N') $$line" | tee -a $(LOG_FILE); \
-		done; \
+	@if [ -n "$$(ls -A $(LOGS_DIR)/*.log 2>/dev/null)" ]; then \
+		mkdir -p $(LOGS_DIR).bak; \
+		echo "Backing up existing logs to $(LOGS_DIR).bak/"; \
+		mv $(LOGS_DIR)/*.log $(LOGS_DIR).bak/ 2>/dev/null || true; \
 	fi
+	@echo "Monitoring $(PORT) — logging to screenlog.0"
+	@echo "Exit: Ctrl+A then K"
+	screen -L $(PORT) 115200
 
 #------------------------------------------------------------------------------
 # Docker Utilities
