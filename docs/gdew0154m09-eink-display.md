@@ -35,13 +35,13 @@ The controller IC is the **JD79653A** — NOT an SSD1681 or UC8151, though many 
 
 - **BUSY is inverted** — LOW means busy, HIGH means ready. Getting this wrong risks display damage.
 - **RST shares GPIO 0** — the ESP32 boot strapping pin. M5Stack hardware has appropriate pull-ups, but be aware during flashing.
-- **SPI bus**: VSPI (SPI3). Use **1 MHz or less** for reliable partial refresh (higher speeds cause partial refresh failures).
+- **SPI bus**: VSPI (SPI3). **1 MHz** is a conservative safe default; M5Core-Ink reference uses 10 MHz. Partial refresh failures are not caused by clock speed alone.
 
 ---
 
 ## SPI Communication Protocol
 
-4-wire SPI, Mode 0 (CPOL=0, CPHA=0):
+4-wire SPI, **Mode 3** (CPOL=1, CPHA=1) — JD79653A samples data on the rising edge of an idle-high clock:
 
 ```
 Command write:  CS=LOW → DC=LOW  → SPI_write(cmd_byte)  → CS=HIGH
@@ -83,8 +83,8 @@ spi_bus_config_t bus_cfg = {
 };
 
 spi_device_interface_config_t dev_cfg = {
-    .clock_speed_hz = 1000000,  // 1 MHz — safe for partial refresh
-    .mode = 0,
+    .clock_speed_hz = 1000000,  // 1 MHz conservative; reference uses 10 MHz
+    .mode = 3,                  // CRITICAL: JD79653A requires Mode 3 (CPOL=1, CPHA=1)
     .spics_io_num = EINK_CS,
     .queue_size = 1,
 };
@@ -128,9 +128,11 @@ spi_device_interface_config_t dev_cfg = {
 From M5Core-Ink Arduino library, LovyanGFX, and LVGL jd79653a driver:
 
 ```c
-// 1. Hardware reset
-gpio_set_level(EINK_RST, 0); vTaskDelay(pdMS_TO_TICKS(10));
+// 1. Hardware reset: HIGH→LOW→HIGH for clean pulse; wait_busy for post-reset init
 gpio_set_level(EINK_RST, 1); vTaskDelay(pdMS_TO_TICKS(10));
+gpio_set_level(EINK_RST, 0); vTaskDelay(pdMS_TO_TICKS(10));
+gpio_set_level(EINK_RST, 1); vTaskDelay(pdMS_TO_TICKS(100));
+wait_busy();
 
 // 2. Panel Setting
 cmd(0x00); data(0xDF); data(0x0E);

@@ -128,12 +128,15 @@ static void send_byte(uint8_t b)
     spi_device_polling_transmit(s_spi, &t);
 }
 
-/* BUSY pin polarity: LOW = busy, HIGH = ready */
+/* BUSY pin polarity: LOW = busy, HIGH = ready.
+ * Timeout after 5 s to prevent infinite hang. */
 static void wait_busy(void)
 {
-    while (gpio_get_level(EINK_BUSY) == 0) {
+    for (int i = 0; i < 500; i++) {
+        if (gpio_get_level(EINK_BUSY) != 0) return;   /* HIGH = ready */
         vTaskDelay(pdMS_TO_TICKS(10));
     }
+    ESP_LOGW(TAG, "wait_busy timeout (BUSY stayed LOW for 5s)");
 }
 
 /* ====================================================================
@@ -186,8 +189,8 @@ esp_err_t eink_init(void)
     }
 
     spi_device_interface_config_t dev_cfg = {
-        .clock_speed_hz = 1000000,  /* 1 MHz — safe for partial refresh */
-        .mode           = 0,
+        .clock_speed_hz = 1000000,  /* 1 MHz — conservative; reference uses 10 MHz */
+        .mode           = 3,        /* JD79653A requires SPI Mode 3 (CPOL=1, CPHA=1) */
         .spics_io_num   = EINK_CS,
         .queue_size     = 1,
     };
@@ -197,14 +200,21 @@ esp_err_t eink_init(void)
         return err;
     }
 
-    /* Hardware reset */
+    ESP_LOGI(TAG, "BUSY pin level before reset: %d", gpio_get_level(EINK_BUSY));
+
+    /* Hardware reset: HIGH→LOW→HIGH ensures a clean pulse regardless of initial state.
+     * wait_busy() waits for the controller to finish its internal post-reset init. */
+    gpio_set_level(EINK_RST, 1);
+    vTaskDelay(pdMS_TO_TICKS(10));
     gpio_set_level(EINK_RST, 0);
     vTaskDelay(pdMS_TO_TICKS(10));
     gpio_set_level(EINK_RST, 1);
-    vTaskDelay(pdMS_TO_TICKS(10));
+    vTaskDelay(pdMS_TO_TICKS(100));
     wait_busy();
+    ESP_LOGI(TAG, "BUSY after reset: %d", gpio_get_level(EINK_BUSY));
 
     /* Panel Setting (PSR) */
+    ESP_LOGI(TAG, "sending panel config");
     send_cmd(0x00); send_byte(0xDF); send_byte(0x0E);
 
     /* FitiPower internal registers */
@@ -220,17 +230,20 @@ esp_err_t eink_init(void)
     /* TCON */
     send_cmd(0x60); send_byte(0x00);
 
-    /* VCOM / Data interval (partial mode default) */
-    send_cmd(0x50); send_byte(0xD7);
+    /* VCOM / Data interval — 0x97 matches GxEPD2_154_M09 full-refresh init */
+    send_cmd(0x50); send_byte(0x97);
 
     /* Power sequence timing */
     send_cmd(0xE3); send_byte(0x00);
 
     /* Power ON */
+    ESP_LOGI(TAG, "sending PON, BUSY=%d", gpio_get_level(EINK_BUSY));
     send_cmd(0x04);
     wait_busy();
+    ESP_LOGI(TAG, "PON done, BUSY=%d", gpio_get_level(EINK_BUSY));
 
     /* Load full-refresh LUTs */
+    ESP_LOGI(TAG, "loading LUTs");
     send_cmd(0x20); send_buf(lut_vcom_dc, sizeof(lut_vcom_dc));
     send_cmd(0x21); send_buf(lut_ww,      sizeof(lut_ww));
     send_cmd(0x22); send_buf(lut_bw,      sizeof(lut_bw));
@@ -276,10 +289,12 @@ esp_err_t eink_refresh(void)
     /* DTM1: old frame */
     send_cmd(0x10);
     send_buf(s_buf_old, EINK_BUF_SIZE);
+    vTaskDelay(pdMS_TO_TICKS(2));
 
     /* DTM2: new frame */
     send_cmd(0x13);
     send_buf(s_buf_new, EINK_BUF_SIZE);
+    vTaskDelay(pdMS_TO_TICKS(2));
 
     /* Trigger display refresh (~820 ms) */
     send_cmd(0x12);
