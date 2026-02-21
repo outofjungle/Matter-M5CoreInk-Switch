@@ -26,6 +26,10 @@
 
 #include "include/CHIPProjectConfig.h"
 #include <esp_app_desc.h>
+#include <setup_payload/OnboardingCodesUtil.h>
+
+#include "eink_display.h"
+#include "qr_render.h"
 
 static const char *TAG = "app_main";
 
@@ -240,6 +244,23 @@ extern "C" void app_main()
     if (!chip::DeviceLayer::ConnectivityMgr().IsWiFiStationProvisioned()) {
         ESP_LOGI(TAG, "WiFi not yet provisioned — commissioning window open");
         app_driver_led_blink_start(LED_BLINK_FAST_MS);
+    }
+
+    // ----------------------------------------------------------------
+    // E-ink: show Matter pairing QR code at boot
+    // ----------------------------------------------------------------
+    if (eink_init() == ESP_OK) {
+        char qr_buf[64] = {0};
+        chip::MutableCharSpan qr_span(qr_buf, sizeof(qr_buf) - 1);
+        CHIP_ERROR chip_err = GetQRCode(qr_span, chip::RendezvousInformationFlag::kBLE);
+        if (chip_err == CHIP_NO_ERROR) {
+            qr_render_to_eink(qr_buf);
+        } else {
+            ESP_LOGW(TAG, "GetQRCode failed: %" CHIP_ERROR_FORMAT, chip_err.Format());
+        }
+        eink_power_off();
+    } else {
+        ESP_LOGW(TAG, "eink_init failed — skipping QR display");
     }
 
     const esp_app_desc_t *app_desc = esp_app_get_description();
