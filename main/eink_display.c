@@ -2,7 +2,8 @@
  * JD79653A E-Ink Display Driver
  * M5Stack Core Ink (GDEW0154M09, 200×200 B/W, SPI)
  *
- * Full-refresh LUTs sourced from GxEPD2_154_M09.cpp (ZinggJM/GxEPD2).
+ * Uses OTP (factory) LUTs for full refresh — PSR 0xDF has LUT_EN=0.
+ * Pixel convention: 1 = white, 0 = black (native JD79653A / M5Core-Ink).
  */
 
 #include "eink_display.h"
@@ -33,63 +34,6 @@ static const char *TAG = "eink";
 static spi_device_handle_t s_spi   = NULL;
 static uint8_t            *s_buf_new = NULL;   /* current frame */
 static uint8_t            *s_buf_old = NULL;   /* previous frame (DTM1) */
-
-/* ====================================================================
- * Full-refresh LUTs from GxEPD2_154_M09 (ZinggJM/GxEPD2)
- * ==================================================================== */
-
-static const uint8_t lut_vcom_dc[56] = {  /* cmd 0x20 */
-    0x01, 0x05, 0x05, 0x05, 0x05, 0x01, 0x01,
-    0x01, 0x05, 0x05, 0x05, 0x05, 0x01, 0x01,
-    0x01, 0x01, 0x00, 0x00, 0x00, 0x01, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-};
-
-static const uint8_t lut_ww[42] = {  /* cmd 0x21 */
-    0x01, 0x45, 0x45, 0x43, 0x44, 0x01, 0x01,
-    0x01, 0x87, 0x83, 0x87, 0x06, 0x01, 0x01,
-    0x01, 0x01, 0x00, 0x00, 0x00, 0x01, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-};
-
-static const uint8_t lut_bw[56] = {  /* cmd 0x22 */
-    0x01, 0x05, 0x05, 0x45, 0x42, 0x01, 0x01,
-    0x01, 0x87, 0x85, 0x85, 0x85, 0x01, 0x01,
-    0x01, 0x01, 0x01, 0x00, 0x00, 0x01, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-};
-
-static const uint8_t lut_wb[56] = {  /* cmd 0x23 */
-    0x01, 0x08, 0x08, 0x82, 0x42, 0x01, 0x01,
-    0x01, 0x45, 0x45, 0x45, 0x45, 0x01, 0x01,
-    0x01, 0x01, 0x00, 0x00, 0x00, 0x01, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-};
-
-static const uint8_t lut_bb[56] = {  /* cmd 0x24 */
-    0x01, 0x85, 0x85, 0x85, 0x83, 0x01, 0x01,
-    0x01, 0x45, 0x45, 0x04, 0x48, 0x01, 0x01,
-    0x01, 0x01, 0x00, 0x00, 0x00, 0x01, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-};
 
 /* ====================================================================
  * Low-level SPI helpers
@@ -152,6 +96,9 @@ esp_err_t eink_init(void)
         ESP_LOGE(TAG, "framebuffer alloc failed");
         return ESP_ERR_NO_MEM;
     }
+    /* OTP LUT convention: 1=white, 0=black; calloc gives 0x00=all-black, init to all-white */
+    memset(s_buf_old, 0xFF, EINK_BUF_SIZE);
+    memset(s_buf_new, 0xFF, EINK_BUF_SIZE);
 
     /* Configure DC and RST as outputs */
     gpio_config_t out_cfg = {
@@ -190,7 +137,7 @@ esp_err_t eink_init(void)
 
     spi_device_interface_config_t dev_cfg = {
         .clock_speed_hz = 1000000,  /* 1 MHz — conservative; reference uses 10 MHz */
-        .mode           = 3,        /* JD79653A requires SPI Mode 3 (CPOL=1, CPHA=1) */
+        .mode           = 0,        /* SPI Mode 0; matches GxEPD2, LovyanGFX, LVGL jd79653a */
         .spics_io_num   = EINK_CS,
         .queue_size     = 1,
     };
@@ -202,18 +149,14 @@ esp_err_t eink_init(void)
 
     ESP_LOGI(TAG, "BUSY pin level before reset: %d", gpio_get_level(EINK_BUSY));
 
-    /* Hardware reset: HIGH→LOW→HIGH ensures a clean pulse regardless of initial state.
-     * wait_busy() waits for the controller to finish its internal post-reset init. */
-    gpio_set_level(EINK_RST, 1);
-    vTaskDelay(pdMS_TO_TICKS(10));
+    /* Hardware reset */
     gpio_set_level(EINK_RST, 0);
     vTaskDelay(pdMS_TO_TICKS(10));
     gpio_set_level(EINK_RST, 1);
     vTaskDelay(pdMS_TO_TICKS(100));
-    wait_busy();
     ESP_LOGI(TAG, "BUSY after reset: %d", gpio_get_level(EINK_BUSY));
 
-    /* Panel Setting (PSR) */
+    /* Panel Setting (PSR): 0xDF = LUT_EN=0 (use OTP), KW mode, 200×200 */
     ESP_LOGI(TAG, "sending panel config");
     send_cmd(0x00); send_byte(0xDF); send_byte(0x0E);
 
@@ -230,8 +173,8 @@ esp_err_t eink_init(void)
     /* TCON */
     send_cmd(0x60); send_byte(0x00);
 
-    /* VCOM / Data interval — 0x97 matches GxEPD2_154_M09 full-refresh init */
-    send_cmd(0x50); send_byte(0x97);
+    /* VCOM / Data interval — 0xD7 matches M5Core-Ink full-refresh init */
+    send_cmd(0x50); send_byte(0xD7);
 
     /* Power sequence timing */
     send_cmd(0xE3); send_byte(0x00);
@@ -242,21 +185,14 @@ esp_err_t eink_init(void)
     wait_busy();
     ESP_LOGI(TAG, "PON done, BUSY=%d", gpio_get_level(EINK_BUSY));
 
-    /* Load full-refresh LUTs */
-    ESP_LOGI(TAG, "loading LUTs");
-    send_cmd(0x20); send_buf(lut_vcom_dc, sizeof(lut_vcom_dc));
-    send_cmd(0x21); send_buf(lut_ww,      sizeof(lut_ww));
-    send_cmd(0x22); send_buf(lut_bw,      sizeof(lut_bw));
-    send_cmd(0x23); send_buf(lut_wb,      sizeof(lut_wb));
-    send_cmd(0x24); send_buf(lut_bb,      sizeof(lut_bb));
-
     ESP_LOGI(TAG, "init done");
     return ESP_OK;
 }
 
 void eink_clear(bool black)
 {
-    memset(s_buf_new, black ? 0xFF : 0x00, EINK_BUF_SIZE);
+    /* Native convention: 1=white, 0=black */
+    memset(s_buf_new, black ? 0x00 : 0xFF, EINK_BUF_SIZE);
 }
 
 void eink_set_pixel(uint16_t x, uint16_t y, bool black)
@@ -264,10 +200,11 @@ void eink_set_pixel(uint16_t x, uint16_t y, bool black)
     if (x >= EINK_WIDTH || y >= EINK_HEIGHT) return;
     uint16_t byte_idx = (x >> 3) + (uint16_t)(y * EINK_ROW_BYTES);
     uint8_t  bit_idx  = 7 - (x & 0x07);
+    /* Native convention: 1=white, 0=black */
     if (black)
-        s_buf_new[byte_idx] |=  (1U << bit_idx);
-    else
         s_buf_new[byte_idx] &= ~(1U << bit_idx);
+    else
+        s_buf_new[byte_idx] |=  (1U << bit_idx);
 }
 
 void eink_fill_rect(uint16_t x, uint16_t y, uint16_t w, uint16_t h, bool black)
@@ -280,7 +217,7 @@ void eink_fill_rect(uint16_t x, uint16_t y, uint16_t w, uint16_t h, bool black)
 esp_err_t eink_refresh(void)
 {
     /* Set VCOM for full-refresh mode */
-    send_cmd(0x50); send_byte(0x97);
+    send_cmd(0x50); send_byte(0xD7);
 
     /* Power ON (idempotent if already on) */
     send_cmd(0x04);
@@ -297,8 +234,12 @@ esp_err_t eink_refresh(void)
     vTaskDelay(pdMS_TO_TICKS(2));
 
     /* Trigger display refresh (~820 ms) */
+    ESP_LOGI(TAG, "DRF: BUSY before 0x12: %d", gpio_get_level(EINK_BUSY));
     send_cmd(0x12);
+    vTaskDelay(pdMS_TO_TICKS(1));
+    ESP_LOGI(TAG, "DRF: BUSY 1ms after: %d", gpio_get_level(EINK_BUSY));
     wait_busy();
+    ESP_LOGI(TAG, "DRF: BUSY after wait: %d", gpio_get_level(EINK_BUSY));
 
     /* Save current frame as old for the next refresh */
     memcpy(s_buf_old, s_buf_new, EINK_BUF_SIZE);

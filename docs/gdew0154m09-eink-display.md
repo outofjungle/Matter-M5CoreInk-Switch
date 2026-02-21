@@ -41,7 +41,7 @@ The controller IC is the **JD79653A** — NOT an SSD1681 or UC8151, though many 
 
 ## SPI Communication Protocol
 
-4-wire SPI, **Mode 3** (CPOL=1, CPHA=1) — JD79653A samples data on the rising edge of an idle-high clock:
+4-wire SPI, **Mode 0** (CPOL=0, CPHA=0) — used by GxEPD2, LovyanGFX, and LVGL jd79653a drivers:
 
 ```
 Command write:  CS=LOW → DC=LOW  → SPI_write(cmd_byte)  → CS=HIGH
@@ -84,7 +84,7 @@ spi_bus_config_t bus_cfg = {
 
 spi_device_interface_config_t dev_cfg = {
     .clock_speed_hz = 1000000,  // 1 MHz conservative; reference uses 10 MHz
-    .mode = 3,                  // CRITICAL: JD79653A requires Mode 3 (CPOL=1, CPHA=1)
+    .mode = 0,                  // SPI Mode 0; matches GxEPD2, LovyanGFX, LVGL jd79653a
     .spics_io_num = EINK_CS,
     .queue_size = 1,
 };
@@ -128,11 +128,10 @@ spi_device_interface_config_t dev_cfg = {
 From M5Core-Ink Arduino library, LovyanGFX, and LVGL jd79653a driver:
 
 ```c
-// 1. Hardware reset: HIGH→LOW→HIGH for clean pulse; wait_busy for post-reset init
-gpio_set_level(EINK_RST, 1); vTaskDelay(pdMS_TO_TICKS(10));
+// 1. Hardware reset (LOW→HIGH, no wait_busy — BUSY stays LOW during internal init
+//    which would cause a 5s timeout; just delay 100ms instead)
 gpio_set_level(EINK_RST, 0); vTaskDelay(pdMS_TO_TICKS(10));
 gpio_set_level(EINK_RST, 1); vTaskDelay(pdMS_TO_TICKS(100));
-wait_busy();
 
 // 2. Panel Setting
 cmd(0x00); data(0xDF); data(0x0E);
@@ -151,7 +150,7 @@ cmd(0x61); data(0xC8); data(0x00); data(0xC8);
 // 5. TCON
 cmd(0x60); data(0x00);
 
-// 6. VCOM / Data interval
+// 6. VCOM / Data interval — 0xD7 matches M5Core-Ink (white border on full refresh)
 cmd(0x50); data(0xD7);
 
 // 7. Power sequence
@@ -161,74 +160,23 @@ cmd(0xE3); data(0x00);
 cmd(0x04);
 wait_busy();
 
-// 9. Load LUT waveform tables
-cmd(0x20); send_data(lut_vcom_dc1, 56);
-cmd(0x21); send_data(lut_ww1, 42);
-cmd(0x22); send_data(lut_bw1, 56);
-cmd(0x23); send_data(lut_wb1, 56);
-cmd(0x24); send_data(lut_bb1, 56);
+// 9. LUTs: PSR 0xDF has LUT_EN=0, so OTP (factory) LUTs are used automatically.
+//    Custom LUT loading (0x20-0x24) only needed for partial refresh overrides.
 ```
 
 ---
 
 ## Look-Up Tables (LUT)
 
-```c
-static const uint8_t lut_vcom_dc1[] = {  // 56 bytes
-    0x01, 0x04, 0x04, 0x03, 0x01, 0x01, 0x01,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
-};
+For **full refresh**: PSR byte `0xDF` has bit LUT_EN=0, meaning the controller uses its
+OTP (factory-programmed) LUTs automatically. No custom LUT loading (0x20-0x24) needed.
+The factory LUTs are tuned for this specific panel and produce correct waveforms.
 
-static const uint8_t lut_ww1[] = {  // 42 bytes
-    0x01, 0x04, 0x04, 0x03, 0x01, 0x01, 0x01,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
-};
+For **partial refresh**: Custom LUTs can be loaded via 0x20-0x24 to override OTP defaults.
+The pixel convention used by OTP LUTs is **1=white, 0=black** (native JD79653A).
 
-static const uint8_t lut_bw1[] = {  // 56 bytes
-    0x01, 0x84, 0x84, 0x83, 0x01, 0x01, 0x01,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
-};
-
-static const uint8_t lut_wb1[] = {  // 56 bytes
-    0x01, 0x44, 0x44, 0x43, 0x01, 0x01, 0x01,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
-};
-
-static const uint8_t lut_bb1[] = {  // 56 bytes
-    0x01, 0x04, 0x04, 0x03, 0x01, 0x01, 0x01,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
-};
-```
-
-LUT byte 2 key: `0x04`=no change, `0x84`=negative voltage (B→W), `0x44`=positive voltage (W→B).
+> **GxEPD2 note**: GxEPD2 uses an inverted convention (1=black, 0=white) and loads its
+> own custom LUTs. When using OTP LUTs, flip pixel polarity relative to GxEPD2.
 
 ---
 
@@ -237,7 +185,8 @@ LUT byte 2 key: `0x04`=no change, `0x84`=negative voltage (B→W), `0x44`=positi
 - **1 bit per pixel**, MSB first, row-major
 - Row length: `200 / 8 = 25 bytes`
 - Total: `25 * 200 = 5000 bytes`
-- Bit value: `1` = black, `0` = white
+- Bit value: **`1` = white, `0` = black** (native OTP LUT convention)
+  - Note: GxEPD2 uses the opposite convention (1=black) with custom LUTs
 
 ```c
 #define EPD_WIDTH   200
@@ -249,10 +198,11 @@ void set_pixel(uint8_t *buf, uint16_t x, uint16_t y, bool black) {
     if (x >= EPD_WIDTH || y >= EPD_HEIGHT) return;
     uint16_t byte_idx = (x >> 3) + (y * EPD_ROW_LEN);
     uint8_t  bit_idx  = 7 - (x & 0x07);  // MSB first
+    /* Native OTP convention: 1=white, 0=black */
     if (black)
-        buf[byte_idx] |=  (1U << bit_idx);
-    else
         buf[byte_idx] &= ~(1U << bit_idx);
+    else
+        buf[byte_idx] |=  (1U << bit_idx);
 }
 ```
 
@@ -270,7 +220,7 @@ The controller compares old vs new to determine pixel transitions, applying the 
 
 ```c
 void epd_full_refresh(uint8_t *old_buf, uint8_t *new_buf) {
-    cmd(0x50); data(0x97);       // VCOM for full refresh mode
+    cmd(0x50); data(0xD7);       // VCOM for full refresh mode (M5Core-Ink default)
     cmd(0x04); wait_busy();      // Power ON
 
     cmd(0x10);

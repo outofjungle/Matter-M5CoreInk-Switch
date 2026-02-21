@@ -248,7 +248,11 @@ extern "C" void app_main()
 
     // ----------------------------------------------------------------
     // E-ink: show Matter pairing QR code at boot
+    // Delay 4 s so the serial monitor is attached before eink logs appear.
     // ----------------------------------------------------------------
+    ESP_LOGI(TAG, "eink: waiting 4s before init (monitor sync)...");
+    vTaskDelay(pdMS_TO_TICKS(4000));
+    ESP_LOGI(TAG, "eink: starting init now");
     if (eink_init() == ESP_OK) {
         char qr_buf[64] = {0};
         chip::MutableCharSpan qr_span(qr_buf, sizeof(qr_buf) - 1);
