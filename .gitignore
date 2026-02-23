@@ -9,3 +9,5 @@ __pycache__/
 *.pyc
 .DS_Store
 /tmp/m5multipass_pairing.txt
+screenlog.0
+.beads/ephemeral.sqlite3
