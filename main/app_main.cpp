@@ -8,6 +8,8 @@
    Hardware: M5Stack Core Ink (ESP32-PICO-D4), WiFi-only Matter transport.
 */
 
+#include <M5GFX.h>
+
 #include <esp_err.h>
 #include <esp_log.h>
 #include <nvs_flash.h>
@@ -31,6 +33,8 @@
 #include <qrcode.h>
 
 static const char *TAG = "app_main";
+
+static M5GFX display;
 
 using namespace esp_matter;
 using namespace esp_matter::attribute;
@@ -177,6 +181,19 @@ extern "C" void app_main()
     };
     gpio_config(&pwr_cfg);
     gpio_set_level(POWER_HOLD_PIN, 1);
+
+    // ----------------------------------------------------------------
+    // Display — show "hello world" on e-ink at boot
+    // ----------------------------------------------------------------
+    display.begin();
+    display.setRotation(0);
+    display.setEpdMode(epd_mode_t::epd_quality);
+    display.fillScreen(TFT_WHITE);
+    display.setTextColor(TFT_BLACK);
+    display.setTextSize(2);
+    display.setCursor(10, 30);
+    display.print("hello world");
+    display.display();
 
     // ----------------------------------------------------------------
     // NVS
