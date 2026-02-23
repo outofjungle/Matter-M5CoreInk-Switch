@@ -26,10 +26,9 @@
 
 #include "include/CHIPProjectConfig.h"
 #include <esp_app_desc.h>
-#include <setup_payload/OnboardingCodesUtil.h>
 
-#include "eink_display.h"
-#include "qr_render.h"
+#include <setup_payload/OnboardingCodesUtil.h>
+#include <qrcode.h>
 
 static const char *TAG = "app_main";
 
@@ -247,24 +246,20 @@ extern "C" void app_main()
     }
 
     // ----------------------------------------------------------------
-    // E-ink: show Matter pairing QR code at boot
-    // Delay 4 s so the serial monitor is attached before eink logs appear.
+    // Print QR code to serial for commissioning
     // ----------------------------------------------------------------
-    ESP_LOGI(TAG, "eink: waiting 4s before init (monitor sync)...");
-    vTaskDelay(pdMS_TO_TICKS(4000));
-    ESP_LOGI(TAG, "eink: starting init now");
-    if (eink_init() == ESP_OK) {
-        char qr_buf[64] = {0};
-        chip::MutableCharSpan qr_span(qr_buf, sizeof(qr_buf) - 1);
-        CHIP_ERROR chip_err = GetQRCode(qr_span, chip::RendezvousInformationFlag::kBLE);
+    {
+        char qr_buf[128];
+        chip::MutableCharSpan qr_span(qr_buf);
+        CHIP_ERROR chip_err = GetQRCode(qr_span, chip::RendezvousInformationFlags(
+            chip::RendezvousInformationFlag::kOnNetwork));
         if (chip_err == CHIP_NO_ERROR) {
-            qr_render_to_eink(qr_buf);
+            ESP_LOGI(TAG, "Matter QR payload: %.*s", (int)qr_span.size(), qr_span.data());
+            esp_qrcode_config_t qr_cfg = ESP_QRCODE_CONFIG_DEFAULT();
+            esp_qrcode_generate(&qr_cfg, qr_buf);
         } else {
-            ESP_LOGW(TAG, "GetQRCode failed: %" CHIP_ERROR_FORMAT, chip_err.Format());
+            ESP_LOGW(TAG, "Failed to get QR payload: %" CHIP_ERROR_FORMAT, chip_err.Format());
         }
-        eink_power_off();
-    } else {
-        ESP_LOGW(TAG, "eink_init failed — skipping QR display");
     }
 
     const esp_app_desc_t *app_desc = esp_app_get_description();
