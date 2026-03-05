@@ -50,12 +50,19 @@ static uint16_t s_endpoint_ids[NUM_SWITCHES] = {0};
 // E-ink QR code renderer — called by esp_qrcode_generate via display_func
 // ---------------------------------------------------------------------------
 
+// Set before calling esp_qrcode_generate; read inside the callback.
+static const char *s_manual_pairing_code = nullptr;
+
 static void render_qr_on_display(esp_qrcode_handle_t qrcode)
 {
+    constexpr int kDisplaySize = 200;
+    constexpr int kTextAreaH   = 30;   // pixels reserved at the bottom for text
+    constexpr int kQRAreaH     = kDisplaySize - kTextAreaH;
+
     int size     = esp_qrcode_get_size(qrcode);
-    int scale    = 200 / (size + 8);  // fit in 200px with quiet zone margin
-    int offset_x = (200 - size * scale) / 2;
-    int offset_y = (200 - size * scale) / 2;
+    int scale    = kQRAreaH / (size + 8);  // fit QR in top region with quiet zone
+    int offset_x = (kDisplaySize - size * scale) / 2;
+    int offset_y = (kQRAreaH - size * scale) / 2;
 
     display.startWrite();           // begin buffered drawing
     display.fillScreen(TFT_WHITE);
@@ -67,6 +74,15 @@ static void render_qr_on_display(esp_qrcode_handle_t qrcode)
             }
         }
     }
+
+    // Draw manual pairing code centered in the bottom text area
+    if (s_manual_pairing_code) {
+        display.setTextColor(TFT_BLACK);
+        display.setFont(&fonts::FreeSansBold9pt7b);
+        display.setTextDatum(textdatum_t::middle_center);
+        display.drawString(s_manual_pairing_code, kDisplaySize / 2, kQRAreaH + kTextAreaH / 2);
+    }
+
     display.endWrite();             // flush to e-ink (auto-display)
     display.waitDisplay();          // wait for physical refresh
     ESP_LOGI("qr_render", "QR code rendered on e-ink (%dx%d, scale=%d)", size, size, scale);
@@ -292,6 +308,7 @@ extern "C" void app_main()
             chip::RendezvousInformationFlag::kBLE));
         if (chip_err == CHIP_NO_ERROR) {
             ESP_LOGI(TAG, "Matter QR payload: %.*s", (int)qr_span.size(), qr_span.data());
+            s_manual_pairing_code = CHIP_DEVICE_CONFIG_MANUAL_PAIRING_CODE;
             esp_qrcode_config_t qr_cfg = {
                 .display_func        = render_qr_on_display,
                 .max_qrcode_version  = 10,
