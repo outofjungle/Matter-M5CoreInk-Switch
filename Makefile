@@ -26,7 +26,6 @@ TARGET := esp32
 #   /dev/ttyUSB*           (Linux)
 PORT ?= $(shell ls /dev/cu.usbserial* /dev/cu.wchusbserial* /dev/cu.SLAB_USBtoUART* /dev/ttyUSB* /dev/ttyACM* 2>/dev/null | head -1)
 
-# Pairing configuration
 PAIRING_CONFIG  := main/include/CHIPPairingConfig.h
 PAIRING_QR_IMAGE := docs/img/pairing_qr.png
 

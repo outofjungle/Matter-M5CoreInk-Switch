@@ -13,6 +13,7 @@
 #include <esp_err.h>
 #include <esp_log.h>
 #include <nvs_flash.h>
+#include <nvs.h>
 #include <driver/gpio.h>
 
 #include <esp_matter.h>
@@ -211,6 +212,32 @@ static esp_err_t app_attribute_update_cb(attribute::callback_type_t type,
 }
 
 // ---------------------------------------------------------------------------
+// Fixed Label NVS helper
+// Writes a single label/value pair into the chip-factory NVS namespace so
+// the DeviceInfoProvider can serve it via the Fixed Label cluster.
+// ---------------------------------------------------------------------------
+
+static void write_fixed_label(uint16_t endpoint_id, const char *label, const char *value)
+{
+    nvs_handle_t h;
+    if (nvs_open("chip-factory", NVS_READWRITE, &h) != ESP_OK) return;
+
+    char key[20];
+    // Count of labels for this endpoint
+    snprintf(key, sizeof(key), "fl-sz/%x", endpoint_id);
+    nvs_set_u32(h, key, 1);
+    // Label name (index 0)
+    snprintf(key, sizeof(key), "fl-k/%x/0", endpoint_id);
+    nvs_set_str(h, key, label);
+    // Label value (index 0)
+    snprintf(key, sizeof(key), "fl-v/%x/0", endpoint_id);
+    nvs_set_str(h, key, value);
+
+    nvs_commit(h);
+    nvs_close(h);
+}
+
+// ---------------------------------------------------------------------------
 // app_main
 // ---------------------------------------------------------------------------
 
@@ -284,6 +311,16 @@ extern "C" void app_main()
         s_endpoint_ids[i] = endpoint::get_id(ep);
         ESP_LOGI(TAG, "Switch[%d] '%s' → endpoint %d",
                  i, switch_labels[i], s_endpoint_ids[i]);
+
+        // Add Fixed Label cluster so the endpoint has a human-readable name
+        cluster::fixed_label::config_t fl_cfg = {};
+        cluster_t *fl = cluster::fixed_label::create(ep, &fl_cfg, CLUSTER_FLAG_SERVER);
+        ABORT_APP_ON_FAILURE(fl != nullptr,
+                             ESP_LOGE(TAG, "Failed to create fixed_label cluster[%d]", i));
+
+        // Write the label into NVS so DeviceInfoProvider can serve it
+        write_fixed_label(s_endpoint_ids[i], "name", switch_labels[i]);
+        ESP_LOGI(TAG, "Switch[%d] fixed label 'name'='%s' written to NVS", i, switch_labels[i]);
     }
 
     // ----------------------------------------------------------------
