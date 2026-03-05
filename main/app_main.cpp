@@ -289,7 +289,7 @@ extern "C" void app_main()
         char qr_buf[128];
         chip::MutableCharSpan qr_span(qr_buf);
         CHIP_ERROR chip_err = GetQRCode(qr_span, chip::RendezvousInformationFlags(
-            chip::RendezvousInformationFlag::kOnNetwork));
+            chip::RendezvousInformationFlag::kBLE));
         if (chip_err == CHIP_NO_ERROR) {
             ESP_LOGI(TAG, "Matter QR payload: %.*s", (int)qr_span.size(), qr_span.data());
             esp_qrcode_config_t qr_cfg = {
