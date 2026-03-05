@@ -47,6 +47,32 @@ constexpr auto k_timeout_seconds = 300;
 static uint16_t s_endpoint_ids[NUM_SWITCHES] = {0};
 
 // ---------------------------------------------------------------------------
+// E-ink QR code renderer — called by esp_qrcode_generate via display_func
+// ---------------------------------------------------------------------------
+
+static void render_qr_on_display(esp_qrcode_handle_t qrcode)
+{
+    int size     = esp_qrcode_get_size(qrcode);
+    int scale    = 200 / (size + 8);  // fit in 200px with quiet zone margin
+    int offset_x = (200 - size * scale) / 2;
+    int offset_y = (200 - size * scale) / 2;
+
+    display.startWrite();           // begin buffered drawing
+    display.fillScreen(TFT_WHITE);
+    for (int y = 0; y < size; y++) {
+        for (int x = 0; x < size; x++) {
+            if (esp_qrcode_get_module(qrcode, x, y)) {
+                display.fillRect(offset_x + x * scale, offset_y + y * scale,
+                                 scale, scale, TFT_BLACK);
+            }
+        }
+    }
+    display.endWrite();             // flush to e-ink (auto-display)
+    display.waitDisplay();          // wait for physical refresh
+    ESP_LOGI("qr_render", "QR code rendered on e-ink (%dx%d, scale=%d)", size, size, scale);
+}
+
+// ---------------------------------------------------------------------------
 // Matter event callback
 // ---------------------------------------------------------------------------
 
@@ -183,17 +209,11 @@ extern "C" void app_main()
     gpio_set_level(POWER_HOLD_PIN, 1);
 
     // ----------------------------------------------------------------
-    // Display — show "hello world" on e-ink at boot
+    // Display — initialise e-ink (rendering happens after Matter starts)
     // ----------------------------------------------------------------
     display.begin();
     display.setRotation(0);
     display.setEpdMode(epd_mode_t::epd_quality);
-    display.fillScreen(TFT_WHITE);
-    display.setTextColor(TFT_BLACK);
-    display.setTextSize(2);
-    display.setCursor(10, 30);
-    display.print("hello world");
-    display.display();
 
     // ----------------------------------------------------------------
     // NVS
@@ -263,7 +283,7 @@ extern "C" void app_main()
     }
 
     // ----------------------------------------------------------------
-    // Print QR code to serial for commissioning
+    // Print QR code to serial and render on e-ink display
     // ----------------------------------------------------------------
     {
         char qr_buf[128];
@@ -272,8 +292,15 @@ extern "C" void app_main()
             chip::RendezvousInformationFlag::kOnNetwork));
         if (chip_err == CHIP_NO_ERROR) {
             ESP_LOGI(TAG, "Matter QR payload: %.*s", (int)qr_span.size(), qr_span.data());
-            esp_qrcode_config_t qr_cfg = ESP_QRCODE_CONFIG_DEFAULT();
-            esp_qrcode_generate(&qr_cfg, qr_buf);
+            esp_qrcode_config_t qr_cfg = {
+                .display_func        = render_qr_on_display,
+                .max_qrcode_version  = 10,
+                .qrcode_ecc_level    = ESP_QRCODE_ECC_MED,
+                .user_data           = nullptr,
+            };
+            if (esp_qrcode_generate(&qr_cfg, qr_buf) != ESP_OK) {
+                ESP_LOGE(TAG, "Failed to render QR code on display");
+            }
         } else {
             ESP_LOGW(TAG, "Failed to get QR payload: %" CHIP_ERROR_FORMAT, chip_err.Format());
         }
