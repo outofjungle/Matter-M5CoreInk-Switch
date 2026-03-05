@@ -56,11 +56,11 @@ static const char *s_manual_pairing_code = nullptr;
 static void render_qr_on_display(esp_qrcode_handle_t qrcode)
 {
     constexpr int kDisplaySize = 200;
-    constexpr int kTextAreaH   = 30;   // pixels reserved at the bottom for text
+    constexpr int kTextAreaH   = 34;   // pixels reserved at the bottom for text
     constexpr int kQRAreaH     = kDisplaySize - kTextAreaH;
 
     int size     = esp_qrcode_get_size(qrcode);
-    int scale    = kQRAreaH / (size + 8);  // fit QR in top region with quiet zone
+    int scale    = kQRAreaH / (size + 4);  // fit QR with minimal 4-module quiet zone
     int offset_x = (kDisplaySize - size * scale) / 2;
     int offset_y = (kQRAreaH - size * scale) / 2;
 
@@ -75,11 +75,11 @@ static void render_qr_on_display(esp_qrcode_handle_t qrcode)
         }
     }
 
-    // Draw manual pairing code centered in the bottom text area
+    // Draw manual pairing code centered in the bottom text area, char-by-char with spacing
     if (s_manual_pairing_code) {
-        display.setTextColor(TFT_BLACK);
-        display.setFont(&fonts::FreeSansBold9pt7b);
+        display.setFont(&fonts::FreeSansBold12pt7b);
         display.setTextDatum(textdatum_t::middle_center);
+        display.setTextColor(TFT_BLACK);
         display.drawString(s_manual_pairing_code, kDisplaySize / 2, kQRAreaH + kTextAreaH / 2);
     }
 
