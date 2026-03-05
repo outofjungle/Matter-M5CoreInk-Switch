@@ -11,3 +11,7 @@ __pycache__/
 /tmp/m5multipass_pairing.txt
 screenlog.0
 .beads/ephemeral.sqlite3
+
+# Dolt database files (added by bd init)
+.dolt/
+*.db
