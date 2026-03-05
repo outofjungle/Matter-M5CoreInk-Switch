@@ -56,13 +56,20 @@ static const char *s_manual_pairing_code = nullptr;
 static void render_qr_on_display(esp_qrcode_handle_t qrcode)
 {
     constexpr int kDisplaySize = 200;
-    constexpr int kTextAreaH   = 34;   // pixels reserved at the bottom for text
-    constexpr int kQRAreaH     = kDisplaySize - kTextAreaH;
+    constexpr int kGap         = 4;   // gap between QR bottom and text
+    constexpr int kTextH       = 18;  // approx height of FreeSansBold12pt7b
 
     int size     = esp_qrcode_get_size(qrcode);
-    int scale    = kQRAreaH / (size + 4);  // fit QR with minimal 4-module quiet zone
-    int offset_x = (kDisplaySize - size * scale) / 2;
-    int offset_y = (kQRAreaH - size * scale) / 2;
+    int scale    = kDisplaySize / (size + 4);  // fit QR to full width
+    int qr_px    = size * scale;
+
+    // Center the whole block (QR + gap + text) vertically for equal top/bottom margins
+    int margin   = (kDisplaySize - (qr_px + kGap + kTextH)) / 2;
+    if (margin < 0) margin = 0;
+
+    int offset_x = (kDisplaySize - qr_px) / 2;
+    int offset_y = margin;
+    int text_y   = margin + qr_px + kGap + kTextH / 2;
 
     display.startWrite();           // begin buffered drawing
     display.fillScreen(TFT_WHITE);
@@ -75,12 +82,12 @@ static void render_qr_on_display(esp_qrcode_handle_t qrcode)
         }
     }
 
-    // Draw manual pairing code centered in the bottom text area, char-by-char with spacing
+    // Draw manual pairing code centered below the QR
     if (s_manual_pairing_code) {
         display.setFont(&fonts::FreeSansBold12pt7b);
         display.setTextDatum(textdatum_t::middle_center);
         display.setTextColor(TFT_BLACK);
-        display.drawString(s_manual_pairing_code, kDisplaySize / 2, kQRAreaH + kTextAreaH / 2);
+        display.drawString(s_manual_pairing_code, kDisplaySize / 2, text_y);
     }
 
     display.endWrite();             // flush to e-ink (auto-display)
