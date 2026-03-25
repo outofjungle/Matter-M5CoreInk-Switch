@@ -610,7 +610,7 @@ function onSlipFrame(frame) {
   try {
     const obj = CBOR.decode(frame);
     log('[rx cbor] ' + JSON.stringify(obj));
-    if (pendingResolve) {
+    if (pendingResolve && typeof obj === 'object' && obj !== null && typeof obj.status === 'string') {
       clearTimeout(pendingTimeout);
       const res = pendingResolve;
       pendingResolve = null;

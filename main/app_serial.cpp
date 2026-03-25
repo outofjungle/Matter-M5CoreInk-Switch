@@ -101,6 +101,7 @@ static void send_response(const uint8_t *cbor_buf, size_t cbor_len)
     size_t slip_len = slip_encode(cbor_buf, cbor_len, slip_buf, sizeof(slip_buf));
     if (slip_len > 0) {
         uart_write_bytes(UART_NUM_0, slip_buf, slip_len);
+        uart_wait_tx_done(UART_NUM_0, pdMS_TO_TICKS(100));
     }
 }
 
