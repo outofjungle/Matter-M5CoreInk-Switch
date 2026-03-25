@@ -8,10 +8,6 @@
 #include <esp_err.h>
 #include <driver/gpio.h>
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 // ---------------------------------------------------------------------------
 // GPIO Pin Definitions (M5Stack Core Ink)
 // Source: https://github.com/m5stack/M5Core-Ink/blob/master/src/utility/config.h
@@ -32,18 +28,8 @@ extern "C" {
 // Switch Configuration
 // ---------------------------------------------------------------------------
 
-#define NUM_SWITCHES     3
-
-// Indices into s_endpoint_ids[] — Switch 1/2/3 endpoints
-// Up/Down buttons navigate selection; Mid fires on selected switch
-#define SWITCH_1_IDX     0
-#define SWITCH_2_IDX     1
-#define SWITCH_3_IDX     2
-
-// Legacy aliases (used in app_driver.cpp for GPIO pin order)
-#define SWITCH_UP_IDX    SWITCH_1_IDX
-#define SWITCH_DOWN_IDX  SWITCH_2_IDX
-#define SWITCH_MID_IDX   SWITCH_3_IDX
+// Total configurable switch slots (statically defined; subset are enabled via NVS)
+#define MAX_SWITCHES     16
 
 // ---------------------------------------------------------------------------
 // Timing
@@ -57,32 +43,82 @@ extern "C" {
 #define LED_BLINK_SLOW_MS   1000   // 0.5 Hz — commissioned
 
 // ---------------------------------------------------------------------------
+// Switch config struct
+// Populated from NVS at boot. One entry per slot (0..MAX_SWITCHES-1).
+// ---------------------------------------------------------------------------
+
+struct switch_config_t {
+    char line1[9];   // display line 1 (max 8 chars + null)
+    char line2[9];   // display line 2 (max 8 chars + null)
+    bool enabled;    // if false, no Matter endpoint is created for this slot
+};
+
+// ---------------------------------------------------------------------------
+// Switch config API (implemented in app_driver.cpp)
+// ---------------------------------------------------------------------------
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/**
+ * @brief Load switch configs from NVS; write defaults on first boot.
+ *        Must be called after nvs_flash_init() and before endpoint creation.
+ */
+esp_err_t app_switch_config_init(void);
+
+/**
+ * @brief Number of slots with enabled=true.
+ */
+int app_switch_get_enabled_count(void);
+
+/**
+ * @brief Config for a given slot index (0..MAX_SWITCHES-1).
+ *        Returns nullptr if idx is out of range.
+ */
+const switch_config_t *app_switch_get_config(int slot);
+
+/**
+ * @brief Slot index of the nth enabled switch (0-based n).
+ *        Returns -1 if n >= enabled count.
+ */
+int app_switch_get_enabled_slot(int n);
+
+/**
+ * @brief Current 0-based index into the enabled-switch list.
+ *        Useful for the boot display when already commissioned.
+ */
+int app_driver_get_selected_switch(void);
+
+// ---------------------------------------------------------------------------
 // Driver API
 // ---------------------------------------------------------------------------
 
 typedef void *app_driver_handle_t;
 
 /**
- * @brief Initialize all three switch buttons.
+ * @brief Initialize all three physical buttons.
  *
- * Up/Down navigate the selected switch; Mid fires Matter events on it.
- * on_switch_selected is called with the new 1-based switch number (1/2/3)
- * whenever Up or Down changes the selection.
+ * Up/Down navigate through enabled switches; Mid fires Matter events on the
+ * currently selected one. on_switch_selected is called with the 0-based
+ * enabled-list index whenever the selection changes.
  *
- * @param endpoint_ids       Array of NUM_SWITCHES endpoint IDs (Switch 1/2/3).
- * @param on_switch_selected Callback invoked with new switch number on navigation.
+ * @param endpoint_ids    Endpoint IDs for enabled switches (length = endpoint_count).
+ * @param endpoint_count  Number of enabled switches.
+ * @param on_switch_selected Callback invoked with enabled-list index on navigation.
  * @return ESP_OK on success
  */
-esp_err_t app_driver_buttons_init(uint16_t *endpoint_ids, void (*on_switch_selected)(int));
+esp_err_t app_driver_buttons_init(uint16_t *endpoint_ids, int endpoint_count,
+                                   void (*on_switch_selected)(int));
 
 /**
- * @brief Render the currently selected switch number on the e-ink display.
+ * @brief Render the selected switch on the e-ink display.
  *        Implemented in app_main.cpp; called by app_driver on Up/Down press
- *        and by app_main on commissioning complete.
+ *        and by app_main on commissioning events.
  *
- * @param switch_num  1-based switch number (1, 2, or 3).
+ * @param enabled_index  0-based index into the enabled-switch list.
  */
-void app_display_show_switch(int switch_num);
+void app_display_show_switch(int enabled_index);
 
 /**
  * @brief Set the status LED on or off directly (raw GPIO, no timer).

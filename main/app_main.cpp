@@ -1,12 +1,13 @@
 /*
    M5 Multipass - Main Application
 
-   Creates a Matter device with three stateless Generic Switch endpoints (1, 2, 3).
-   UP / DOWN buttons navigate the selected switch shown on the e-ink display.
-   MID button fires InitialPress + ShortRelease on the selected switch.
+   Creates a Matter device with up to MAX_SWITCHES (16) Generic Switch endpoints.
+   Which switches are active is controlled by NVS (line1, line2, enabled per slot).
+   UP / DOWN buttons navigate enabled switches shown on the e-ink display.
+   MID button fires InitialPress + ShortRelease on the currently selected switch.
 
-   Display shows the commissioning QR code until the device is commissioned,
-   then shows the currently selected switch number.
+   Display shows the commissioning QR code until commissioned,
+   then shows line1/line2 of the selected switch from NVS.
 
    Hardware: M5Stack Core Ink (ESP32-PICO-D4), WiFi-only Matter transport.
 */
@@ -47,8 +48,9 @@ using namespace chip::app::Clusters;
 
 constexpr auto k_timeout_seconds = 300;
 
-// Endpoint IDs for each switch — indexed by SWITCH_UP/DOWN/MID_IDX
-static uint16_t s_endpoint_ids[NUM_SWITCHES] = {0};
+// Endpoint IDs for enabled switches, built dynamically at boot
+static uint16_t s_endpoint_ids[MAX_SWITCHES] = {0};
+static int s_ep_count = 0;
 
 // ---------------------------------------------------------------------------
 // E-ink QR code renderer — called by esp_qrcode_generate via display_func
@@ -101,31 +103,38 @@ static void render_qr_on_display(esp_qrcode_handle_t qrcode)
 
 // ---------------------------------------------------------------------------
 // E-ink switch selector renderer
-// Draws "Switch N" large and centered. Called post-commissioning.
+// Draws line1 (small) and line2 (large) from NVS config, centered.
+// Called post-commissioning with a 0-based enabled-list index.
 // ---------------------------------------------------------------------------
 
-void app_display_show_switch(int switch_num)
+void app_display_show_switch(int enabled_index)
 {
     constexpr int kDisplaySize = 200;
+
+    int slot = app_switch_get_enabled_slot(enabled_index);
+    const switch_config_t *cfg = app_switch_get_config(slot);
+    if (!cfg) {
+        ESP_LOGW("display", "No config for enabled_index=%d", enabled_index);
+        return;
+    }
 
     display.startWrite();
     display.fillScreen(TFT_WHITE);
 
-    // Label: "Switch" in smaller font above the number
-    display.setFont(&fonts::FreeSans12pt7b);
     display.setTextDatum(textdatum_t::middle_center);
     display.setTextColor(TFT_BLACK);
-    display.drawString("Switch", kDisplaySize / 2, kDisplaySize / 2 - 30);
 
-    // Number: large, centered
+    // line1: smaller font, upper half
+    display.setFont(&fonts::FreeSans12pt7b);
+    display.drawString(cfg->line1, kDisplaySize / 2, kDisplaySize / 2 - 30);
+
+    // line2: large font, lower half
     display.setFont(&fonts::FreeSansBold24pt7b);
-    char buf[4];
-    snprintf(buf, sizeof(buf), "%d", switch_num);
-    display.drawString(buf, kDisplaySize / 2, kDisplaySize / 2 + 20);
+    display.drawString(cfg->line2, kDisplaySize / 2, kDisplaySize / 2 + 20);
 
     display.endWrite();
     display.waitDisplay();
-    ESP_LOGI("display", "Showing Switch %d", switch_num);
+    ESP_LOGI("display", "Showing slot %d: '%s' / '%s'", slot, cfg->line1, cfg->line2);
 }
 
 // ---------------------------------------------------------------------------
@@ -142,7 +151,7 @@ static void app_event_cb(const ChipDeviceEvent *event, intptr_t arg)
     case chip::DeviceLayer::DeviceEventType::kCommissioningComplete:
         ESP_LOGI(TAG, "Commissioning complete");
         app_driver_led_blink_start(LED_BLINK_SLOW_MS);
-        app_display_show_switch(1);
+        app_display_show_switch(app_driver_get_selected_switch());
         break;
 
     case chip::DeviceLayer::DeviceEventType::kFailSafeTimerExpired:
@@ -323,15 +332,23 @@ extern "C" void app_main()
                          ESP_LOGE(TAG, "Failed to create Matter node"));
 
     // ----------------------------------------------------------------
-    // Create Generic Switch endpoints (one per button)
+    // Load switch config from NVS (must be after nvs_flash_init)
     // ----------------------------------------------------------------
-    const char *switch_labels[NUM_SWITCHES] = { "1", "2", "3" };
+    err = app_switch_config_init();
+    ABORT_APP_ON_FAILURE(err == ESP_OK,
+                         ESP_LOGE(TAG, "Failed to init switch config: %d", err));
 
-    for (int i = 0; i < NUM_SWITCHES; i++) {
+    // ----------------------------------------------------------------
+    // Create Generic Switch endpoints for enabled slots only
+    // ----------------------------------------------------------------
+    s_ep_count = 0;
+    for (int slot = 0; slot < MAX_SWITCHES; slot++) {
+        const switch_config_t *cfg = app_switch_get_config(slot);
+        if (!cfg || !cfg->enabled) continue;
+
         generic_switch::config_t sw_cfg = {};
         // Feature map: MS (MomentarySwitch=0x02) | MSR (MomentarySwitchRelease=0x04)
-        // This enables InitialPress + ShortRelease events, required for Apple Home
-        // single-press automations.
+        // Enables InitialPress + ShortRelease — required for Apple Home single-press automations.
         sw_cfg.switch_cluster.feature_flags       = 0x06;  // MS | MSR
         sw_cfg.switch_cluster.number_of_positions = 2;
         sw_cfg.switch_cluster.current_position    = 0;
@@ -339,27 +356,32 @@ extern "C" void app_main()
         endpoint_t *ep = generic_switch::create(node, &sw_cfg,
                                                  ENDPOINT_FLAG_NONE, nullptr);
         ABORT_APP_ON_FAILURE(ep != nullptr,
-                             ESP_LOGE(TAG, "Failed to create switch endpoint[%d]", i));
+                             ESP_LOGE(TAG, "Failed to create switch endpoint slot=%d", slot));
 
-        s_endpoint_ids[i] = endpoint::get_id(ep);
-        ESP_LOGI(TAG, "Switch[%d] '%s' → endpoint %d",
-                 i, switch_labels[i], s_endpoint_ids[i]);
+        s_endpoint_ids[s_ep_count] = endpoint::get_id(ep);
+        ESP_LOGI(TAG, "Slot %d '%s %s' → endpoint %d",
+                 slot, cfg->line1, cfg->line2, s_endpoint_ids[s_ep_count]);
 
-        // Add Fixed Label cluster so the endpoint has a human-readable name
+        // Fixed Label cluster — label value is "line1 line2" (e.g. "Switch 1")
         cluster::fixed_label::config_t fl_cfg = {};
         cluster_t *fl = cluster::fixed_label::create(ep, &fl_cfg, CLUSTER_FLAG_SERVER);
         ABORT_APP_ON_FAILURE(fl != nullptr,
-                             ESP_LOGE(TAG, "Failed to create fixed_label cluster[%d]", i));
+                             ESP_LOGE(TAG, "Failed to create fixed_label cluster slot=%d", slot));
 
-        // Write the label into NVS so DeviceInfoProvider can serve it
-        write_fixed_label(s_endpoint_ids[i], "name", switch_labels[i]);
-        ESP_LOGI(TAG, "Switch[%d] fixed label 'name'='%s' written to NVS", i, switch_labels[i]);
+        char label_val[18];
+        snprintf(label_val, sizeof(label_val), "%s %s", cfg->line1, cfg->line2);
+        write_fixed_label(s_endpoint_ids[s_ep_count], "name", label_val);
+        ESP_LOGI(TAG, "Slot %d fixed label 'name'='%s' written to NVS", slot, label_val);
+
+        s_ep_count++;
     }
+
+    ESP_LOGI(TAG, "Created %d Generic Switch endpoints", s_ep_count);
 
     // ----------------------------------------------------------------
     // Initialise buttons
     // ----------------------------------------------------------------
-    err = app_driver_buttons_init(s_endpoint_ids, app_display_show_switch);
+    err = app_driver_buttons_init(s_endpoint_ids, s_ep_count, app_display_show_switch);
     ABORT_APP_ON_FAILURE(err == ESP_OK,
                          ESP_LOGE(TAG, "Failed to init buttons: %d", err));
 
@@ -384,7 +406,7 @@ extern "C" void app_main()
 
         if (already_commissioned) {
             ESP_LOGI(TAG, "Already commissioned — showing switch selector");
-            app_display_show_switch(1);
+            app_display_show_switch(app_driver_get_selected_switch());
         } else {
             // Print QR payload to serial and render on e-ink
             char qr_buf[128];
@@ -411,7 +433,7 @@ extern "C" void app_main()
 
     const esp_app_desc_t *app_desc = esp_app_get_description();
     ESP_LOGI(TAG, "M5 Multipass v%s started — %d Generic Switch endpoints",
-             app_desc->version, NUM_SWITCHES);
+             app_desc->version, s_ep_count);
     ESP_LOGI(TAG, "=== Commissioning Info ===");
     ESP_LOGI(TAG, "Discriminator: %d (0x%03X)",
              CHIP_DEVICE_CONFIG_USE_TEST_SETUP_DISCRIMINATOR,

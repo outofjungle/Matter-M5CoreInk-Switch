@@ -29,10 +29,6 @@ PORT ?= $(shell ls /dev/cu.usbserial* /dev/cu.wchusbserial* /dev/cu.SLAB_USBtoUA
 PAIRING_CONFIG  := main/include/CHIPPairingConfig.h
 PAIRING_QR_IMAGE := docs/img/pairing_qr.png
 
-# Logging configuration
-LOGS_DIR := logs
-LOG_FILE := $(LOGS_DIR)/monitor_$(shell date +%Y%m%d_%H%M%S).log
-
 # Docker compose command
 DOCKER_COMPOSE := docker-compose
 DOCKER_RUN := $(DOCKER_COMPOSE) run --rm esp-idf
@@ -83,14 +79,8 @@ erase: ## Erase flash (factory reset) using host esptool
 	@test -n "$(PORT)" || (echo "Error: No device found. Set PORT=<device>" && exit 1)
 	esptool --port $(PORT) erase_flash
 
-monitor: ## Serial monitor with logging to logs/ (Ctrl+A K to exit)
+monitor: ## Serial monitor with screen log (Ctrl+A K to exit)
 	@test -n "$(PORT)" || (echo "Error: No device found. Set PORT=<device>" && exit 1)
-	@mkdir -p $(LOGS_DIR)
-	@if [ -n "$$(ls -A $(LOGS_DIR)/*.log 2>/dev/null)" ]; then \
-		mkdir -p $(LOGS_DIR).bak; \
-		echo "Backing up existing logs to $(LOGS_DIR).bak/"; \
-		mv $(LOGS_DIR)/*.log $(LOGS_DIR).bak/ 2>/dev/null || true; \
-	fi
 	@echo "Monitoring $(PORT) — logging to screenlog.0"
 	@echo "Exit: Ctrl+A then K"
 	screen -L $(PORT) 115200

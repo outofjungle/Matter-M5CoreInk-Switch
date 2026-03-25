@@ -1,9 +1,10 @@
 /*
-   M5 Multipass - Button Driver
+   M5 Multipass - Button Driver & Switch Config
 
-   Initialises three momentary-switch buttons (UP, DOWN, MID).
+   Manages NVS-backed switch configuration (16 slots, each with line1/line2/enabled)
+   and the three physical buttons.
 
-   UP / DOWN  → navigate selected switch (1/2/3); calls display callback; no Matter events
+   UP / DOWN  → navigate enabled switches; calls display callback; no Matter events
    MID press  → emits InitialPress + ShortRelease on the currently selected switch endpoint
    MID long-hold → factory reset (delegated to app_reset)
 */
@@ -12,6 +13,7 @@
 #include <esp_log.h>
 #include <esp_matter.h>
 #include <esp_timer.h>
+#include <nvs.h>
 #include <iot_button.h>
 
 // CHIP event logging
@@ -28,44 +30,161 @@ using namespace esp_matter;
 using namespace chip::app::Clusters;
 
 // ---------------------------------------------------------------------------
-// State
+// NVS keys
 // ---------------------------------------------------------------------------
 
-// All three switch endpoint IDs — Mid fires on whichever is selected
-static uint16_t s_endpoint_ids[NUM_SWITCHES] = {0};
+static const char *NVS_NS       = "app_state";
+static const char *NVS_SEL_KEY  = "sel_sw";
 
-// 0-indexed selected switch (0 = Switch 1, 1 = Switch 2, 2 = Switch 3)
-static int s_selected_switch = 0;
-
-// Display callback set by app_driver_buttons_init
-static void (*s_display_cb)(int) = nullptr;
-
-// ---------------------------------------------------------------------------
-// Per-button context
-// ---------------------------------------------------------------------------
-
-struct btn_ctx_t {
-    int  index;              // 0=Up, 1=Down, 2=Mid
-    bool long_press_active;  // set true when long-press fires, blocks ShortRelease
-};
-
-static btn_ctx_t s_ctx[NUM_SWITCHES];
-static button_handle_t s_handles[NUM_SWITCHES];
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-static void update_current_position(uint16_t ep_id, uint8_t position)
+// Key builders — caller owns the buffer
+static void sw_key(char *buf, size_t len, int slot, const char *field)
 {
-    esp_matter_attr_val_t val = esp_matter_uint8(position);
-    attribute::update(ep_id,
-                      Switch::Id,
-                      Switch::Attributes::CurrentPosition::Id,
-                      &val);
+    snprintf(buf, len, "sw/%d/%s", slot, field);
 }
 
-static uint16_t selected_ep_id()
+// ---------------------------------------------------------------------------
+// Switch config state
+// ---------------------------------------------------------------------------
+
+static switch_config_t s_configs[MAX_SWITCHES];
+static int s_enabled_slots[MAX_SWITCHES];  // slot indices of enabled switches
+static int s_enabled_count = 0;
+
+static void write_defaults_to_nvs(void)
+{
+    nvs_handle_t h;
+    if (nvs_open(NVS_NS, NVS_READWRITE, &h) != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to open NVS for default write");
+        return;
+    }
+
+    char key[16];
+    char num[9];
+    for (int i = 0; i < MAX_SWITCHES; i++) {
+        sw_key(key, sizeof(key), i, "l1");
+        nvs_set_str(h, key, "Switch");
+
+        snprintf(num, sizeof(num), "%d", i + 1);
+        sw_key(key, sizeof(key), i, "l2");
+        nvs_set_str(h, key, num);
+
+        sw_key(key, sizeof(key), i, "en");
+        nvs_set_u8(h, key, (i < 4) ? 1 : 0);
+    }
+
+    nvs_commit(h);
+    nvs_close(h);
+    ESP_LOGI(TAG, "NVS switch defaults written (slots 0-3 enabled)");
+}
+
+esp_err_t app_switch_config_init(void)
+{
+    nvs_handle_t h;
+    char key[16];
+
+    // First-boot detection: check if slot 0 enabled key exists
+    esp_err_t probe_err = nvs_open(NVS_NS, NVS_READONLY, &h);
+    bool first_boot = true;
+    if (probe_err == ESP_OK) {
+        uint8_t dummy;
+        sw_key(key, sizeof(key), 0, "en");
+        first_boot = (nvs_get_u8(h, key, &dummy) == ESP_ERR_NVS_NOT_FOUND);
+        nvs_close(h);
+    }
+
+    if (first_boot) {
+        write_defaults_to_nvs();
+    }
+
+    // Load all 16 configs
+    if (nvs_open(NVS_NS, NVS_READONLY, &h) != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to open NVS for config load");
+        return ESP_FAIL;
+    }
+
+    s_enabled_count = 0;
+    for (int i = 0; i < MAX_SWITCHES; i++) {
+        size_t sz;
+        uint8_t en = 0;
+
+        sw_key(key, sizeof(key), i, "l1");
+        sz = sizeof(s_configs[i].line1);
+        if (nvs_get_str(h, key, s_configs[i].line1, &sz) != ESP_OK) {
+            strncpy(s_configs[i].line1, "Switch", sizeof(s_configs[i].line1));
+        }
+
+        sw_key(key, sizeof(key), i, "l2");
+        sz = sizeof(s_configs[i].line2);
+        char num_buf[9];
+        snprintf(num_buf, sizeof(num_buf), "%d", i + 1);
+        if (nvs_get_str(h, key, s_configs[i].line2, &sz) != ESP_OK) {
+            strncpy(s_configs[i].line2, num_buf, sizeof(s_configs[i].line2));
+        }
+
+        sw_key(key, sizeof(key), i, "en");
+        nvs_get_u8(h, key, &en);
+        s_configs[i].enabled = (en != 0);
+
+        if (s_configs[i].enabled) {
+            s_enabled_slots[s_enabled_count++] = i;
+        }
+    }
+
+    nvs_close(h);
+    ESP_LOGI(TAG, "Loaded %d enabled switches (of %d)", s_enabled_count, MAX_SWITCHES);
+    return ESP_OK;
+}
+
+int app_switch_get_enabled_count(void)   { return s_enabled_count; }
+
+const switch_config_t *app_switch_get_config(int slot)
+{
+    if (slot < 0 || slot >= MAX_SWITCHES) return nullptr;
+    return &s_configs[slot];
+}
+
+int app_switch_get_enabled_slot(int n)
+{
+    if (n < 0 || n >= s_enabled_count) return -1;
+    return s_enabled_slots[n];
+}
+
+// ---------------------------------------------------------------------------
+// Switch selection state
+// ---------------------------------------------------------------------------
+
+static uint16_t s_endpoint_ids[MAX_SWITCHES] = {0};
+static int s_endpoint_count = 0;
+
+// 0-indexed into the enabled-switch list
+static int s_selected_switch = 0;
+
+// Display callback
+static void (*s_display_cb)(int) = nullptr;
+
+int app_driver_get_selected_switch(void) { return s_selected_switch; }
+
+static void save_selected_switch(int idx)
+{
+    nvs_handle_t h;
+    if (nvs_open(NVS_NS, NVS_READWRITE, &h) != ESP_OK) return;
+    nvs_set_u8(h, NVS_SEL_KEY, (uint8_t)idx);
+    nvs_commit(h);
+    nvs_close(h);
+}
+
+static int load_selected_switch(void)
+{
+    nvs_handle_t h;
+    uint8_t val = 0;
+    if (nvs_open(NVS_NS, NVS_READONLY, &h) == ESP_OK) {
+        nvs_get_u8(h, NVS_SEL_KEY, &val);
+        nvs_close(h);
+    }
+    return (val < (uint8_t)s_endpoint_count) ? (int)val : 0;
+}
+
+static uint16_t selected_ep_id(void)
 {
     return s_endpoint_ids[s_selected_switch];
 }
@@ -103,7 +222,7 @@ void app_driver_led_blink_start(uint32_t half_period_ms)
         };
         esp_timer_create(&args, &s_blink_timer);
     } else {
-        esp_timer_stop(s_blink_timer);  // may return error if not running; ignore
+        esp_timer_stop(s_blink_timer);
     }
     s_blink_state = false;
     led_set(false);
@@ -119,17 +238,31 @@ void app_driver_led_blink_stop(void)
 }
 
 // ---------------------------------------------------------------------------
+// Per-button context
+// ---------------------------------------------------------------------------
+
+struct btn_ctx_t {
+    int  index;              // 0=Up, 1=Down, 2=Mid
+    bool long_press_active;  // set true when long-press fires, blocks ShortRelease
+};
+
+static btn_ctx_t s_ctx[3];
+static button_handle_t s_handles[3];
+
+// ---------------------------------------------------------------------------
 // Button callbacks
 // ---------------------------------------------------------------------------
 
-// --- Up button: advance selection ---
+// --- Up button: retreat selection ---
 
 static void btn_up_press_cb(void *arg, void *data)
 {
     led_set(true);
-    s_selected_switch = (s_selected_switch + NUM_SWITCHES - 1) % NUM_SWITCHES;
-    ESP_LOGI(TAG, "Nav UP → Switch %d selected", s_selected_switch + 1);
-    if (s_display_cb) s_display_cb(s_selected_switch + 1);
+    s_selected_switch = (s_selected_switch + s_endpoint_count - 1) % s_endpoint_count;
+    ESP_LOGI(TAG, "Nav UP → enabled[%d] (slot %d)", s_selected_switch,
+             app_switch_get_enabled_slot(s_selected_switch));
+    save_selected_switch(s_selected_switch);
+    if (s_display_cb) s_display_cb(s_selected_switch);
 }
 
 static void btn_up_release_cb(void *arg, void *data)
@@ -137,14 +270,16 @@ static void btn_up_release_cb(void *arg, void *data)
     led_set(false);
 }
 
-// --- Down button: retreat selection ---
+// --- Down button: advance selection ---
 
 static void btn_down_press_cb(void *arg, void *data)
 {
     led_set(true);
-    s_selected_switch = (s_selected_switch + 1) % NUM_SWITCHES;
-    ESP_LOGI(TAG, "Nav DOWN → Switch %d selected", s_selected_switch + 1);
-    if (s_display_cb) s_display_cb(s_selected_switch + 1);
+    s_selected_switch = (s_selected_switch + 1) % s_endpoint_count;
+    ESP_LOGI(TAG, "Nav DOWN → enabled[%d] (slot %d)", s_selected_switch,
+             app_switch_get_enabled_slot(s_selected_switch));
+    save_selected_switch(s_selected_switch);
+    if (s_display_cb) s_display_cb(s_selected_switch);
 }
 
 static void btn_down_release_cb(void *arg, void *data)
@@ -160,13 +295,16 @@ static void btn_mid_press_down_cb(void *arg, void *data)
     ctx->long_press_active = false;
 
     uint16_t ep = selected_ep_id();
-    ESP_LOGD(TAG, "Mid press down → Switch %d (ep %d)", s_selected_switch + 1, ep);
+    int slot = app_switch_get_enabled_slot(s_selected_switch);
+    ESP_LOGD(TAG, "Mid press down → enabled[%d] slot %d (ep %d)",
+             s_selected_switch, slot, ep);
 
     led_set(true);
 
     {
         esp_matter::lock::ScopedChipStackLock chip_lock(portMAX_DELAY);
-        update_current_position(ep, 1);
+        esp_matter_attr_val_t val = esp_matter_uint8(1);
+        attribute::update(ep, Switch::Id, Switch::Attributes::CurrentPosition::Id, &val);
 
         Switch::Events::InitialPress::Type event_data;
         event_data.newPosition = 1;
@@ -174,7 +312,7 @@ static void btn_mid_press_down_cb(void *arg, void *data)
         chip::app::LogEvent(event_data, ep, event_number);
     }
 
-    ESP_LOGI(TAG, "Switch %d InitialPress sent", s_selected_switch + 1);
+    ESP_LOGI(TAG, "Switch slot %d InitialPress sent", slot);
 }
 
 static void btn_mid_press_up_cb(void *arg, void *data)
@@ -189,11 +327,14 @@ static void btn_mid_press_up_cb(void *arg, void *data)
     }
 
     uint16_t ep = selected_ep_id();
-    ESP_LOGD(TAG, "Mid press up → Switch %d (ep %d)", s_selected_switch + 1, ep);
+    int slot = app_switch_get_enabled_slot(s_selected_switch);
+    ESP_LOGD(TAG, "Mid press up → enabled[%d] slot %d (ep %d)",
+             s_selected_switch, slot, ep);
 
     {
         esp_matter::lock::ScopedChipStackLock chip_lock(portMAX_DELAY);
-        update_current_position(ep, 0);
+        esp_matter_attr_val_t val = esp_matter_uint8(0);
+        attribute::update(ep, Switch::Id, Switch::Attributes::CurrentPosition::Id, &val);
 
         Switch::Events::ShortRelease::Type event_data;
         event_data.previousPosition = 1;
@@ -201,10 +342,9 @@ static void btn_mid_press_up_cb(void *arg, void *data)
         chip::app::LogEvent(event_data, ep, event_number);
     }
 
-    ESP_LOGI(TAG, "Switch %d ShortRelease sent", s_selected_switch + 1);
+    ESP_LOGI(TAG, "Switch slot %d ShortRelease sent", slot);
 }
 
-// Mark that a long-press fired so press_up_cb skips ShortRelease
 static void btn_long_press_mark_cb(void *arg, void *data)
 {
     btn_ctx_t *ctx = static_cast<btn_ctx_t *>(data);
@@ -215,20 +355,25 @@ static void btn_long_press_mark_cb(void *arg, void *data)
 // Public init
 // ---------------------------------------------------------------------------
 
-static const gpio_num_t k_button_pins[NUM_SWITCHES] = {
+static const gpio_num_t k_button_pins[3] = {
     BUTTON_UP_PIN,
     BUTTON_DOWN_PIN,
     BUTTON_MID_PIN,
 };
 
-esp_err_t app_driver_buttons_init(uint16_t *endpoint_ids, void (*on_switch_selected)(int))
+esp_err_t app_driver_buttons_init(uint16_t *endpoint_ids, int endpoint_count,
+                                   void (*on_switch_selected)(int))
 {
-    // Store endpoint IDs and display callback
-    for (int i = 0; i < NUM_SWITCHES; i++) {
+    // Store endpoint IDs, count, and display callback
+    for (int i = 0; i < endpoint_count && i < MAX_SWITCHES; i++) {
         s_endpoint_ids[i] = endpoint_ids[i];
     }
+    s_endpoint_count = endpoint_count;
     s_display_cb = on_switch_selected;
-    s_selected_switch = 0;  // start on Switch 1
+    s_selected_switch = load_selected_switch();
+
+    ESP_LOGI(TAG, "Starting on enabled[%d] (slot %d)",
+             s_selected_switch, app_switch_get_enabled_slot(s_selected_switch));
 
     // Configure LED GPIO
     gpio_config_t led_cfg = {
@@ -241,7 +386,7 @@ esp_err_t app_driver_buttons_init(uint16_t *endpoint_ids, void (*on_switch_selec
     gpio_config(&led_cfg);
     led_set(false);
 
-    for (int i = 0; i < NUM_SWITCHES; i++) {
+    for (int i = 0; i < 3; i++) {
         s_ctx[i].index             = i;
         s_ctx[i].long_press_active = false;
 
@@ -258,10 +403,10 @@ esp_err_t app_driver_buttons_init(uint16_t *endpoint_ids, void (*on_switch_selec
             return ESP_FAIL;
         }
 
-        if (i == SWITCH_UP_IDX) {
+        if (i == 0) {  // Up
             iot_button_register_cb(s_handles[i], BUTTON_PRESS_DOWN, btn_up_press_cb,   nullptr);
             iot_button_register_cb(s_handles[i], BUTTON_PRESS_UP,   btn_up_release_cb, nullptr);
-        } else if (i == SWITCH_DOWN_IDX) {
+        } else if (i == 1) {  // Down
             iot_button_register_cb(s_handles[i], BUTTON_PRESS_DOWN, btn_down_press_cb,   nullptr);
             iot_button_register_cb(s_handles[i], BUTTON_PRESS_UP,   btn_down_release_cb, nullptr);
         } else {  // Mid

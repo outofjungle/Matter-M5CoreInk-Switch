@@ -71,8 +71,8 @@ CONFIG_ESP_INSIGHTS_ENABLED=n
 # newlib nano format (smaller printf footprint)
 CONFIG_NEWLIB_NANO_FORMAT=y
 
-# 4 dynamic endpoints: 3 switches + 1 spare
-CONFIG_ESP_MATTER_MAX_DYNAMIC_ENDPOINT_COUNT=4
+# 17 dynamic endpoints: up to 16 switches + 1 root
+CONFIG_ESP_MATTER_MAX_DYNAMIC_ENDPOINT_COUNT=17
 
 # Move FreeRTOS to flash (saves ~8 KB IRAM)
 CONFIG_FREERTOS_PLACE_FUNCTIONS_INTO_FLASH=y
