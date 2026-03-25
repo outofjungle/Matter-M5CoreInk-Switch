@@ -90,6 +90,17 @@ int app_switch_get_enabled_slot(int n);
  */
 int app_driver_get_selected_switch(void);
 
+/**
+ * @brief Write one slot's config to NVS.
+ *        Does not update in-memory state — caller should esp_restart() after.
+ *
+ * @param slot  0..MAX_SWITCHES-1
+ * @param l1    Line 1 text (max 8 chars, non-empty)
+ * @param l2    Line 2 text (max 8 chars, non-empty)
+ * @param en    Enabled flag
+ */
+esp_err_t app_switch_nvs_write_slot(int slot, const char *l1, const char *l2, bool en);
+
 // ---------------------------------------------------------------------------
 // Driver API
 // ---------------------------------------------------------------------------

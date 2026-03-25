@@ -131,7 +131,52 @@ esp_err_t app_switch_config_init(void)
     }
 
     nvs_close(h);
+
+    // Sanitize in-memory values (NVS write may have stored bad data via serial)
+    for (int i = 0; i < MAX_SWITCHES; i++) {
+        if (s_configs[i].line1[0] == '\0') {
+            strncpy(s_configs[i].line1, "Switch", sizeof(s_configs[i].line1));
+        }
+        if (s_configs[i].line2[0] == '\0') {
+            snprintf(s_configs[i].line2, sizeof(s_configs[i].line2), "%d", i + 1);
+        }
+    }
+
+    // Force-enable slot 0 if nothing is enabled (prevent blank device)
+    if (s_enabled_count == 0) {
+        ESP_LOGW(TAG, "No enabled switches — force-enabling slot 0");
+        s_configs[0].enabled = true;
+        s_enabled_slots[0] = 0;
+        s_enabled_count = 1;
+        // Write correction back to NVS
+        nvs_handle_t fix_h;
+        if (nvs_open(NVS_NS, NVS_READWRITE, &fix_h) == ESP_OK) {
+            char fix_key[16];
+            sw_key(fix_key, sizeof(fix_key), 0, "en");
+            nvs_set_u8(fix_h, fix_key, 1);
+            nvs_commit(fix_h);
+            nvs_close(fix_h);
+        }
+    }
+
     ESP_LOGI(TAG, "Loaded %d enabled switches (of %d)", s_enabled_count, MAX_SWITCHES);
+    return ESP_OK;
+}
+
+esp_err_t app_switch_nvs_write_slot(int slot, const char *l1, const char *l2, bool en)
+{
+    if (slot < 0 || slot >= MAX_SWITCHES) return ESP_ERR_INVALID_ARG;
+    nvs_handle_t h;
+    if (nvs_open(NVS_NS, NVS_READWRITE, &h) != ESP_OK) return ESP_FAIL;
+    char key[16];
+    sw_key(key, sizeof(key), slot, "l1");
+    nvs_set_str(h, key, l1);
+    sw_key(key, sizeof(key), slot, "l2");
+    nvs_set_str(h, key, l2);
+    sw_key(key, sizeof(key), slot, "en");
+    nvs_set_u8(h, key, en ? 1 : 0);
+    nvs_commit(h);
+    nvs_close(h);
     return ESP_OK;
 }
 

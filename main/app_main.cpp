@@ -33,6 +33,7 @@
 
 #include "include/CHIPProjectConfig.h"
 #include <esp_app_desc.h>
+#include "app_serial.h"
 
 #include <setup_payload/OnboardingCodesUtil.h>
 #include <qrcode.h>
@@ -330,6 +331,14 @@ extern "C" void app_main()
                                  app_identification_cb);
     ABORT_APP_ON_FAILURE(node != nullptr,
                          ESP_LOGE(TAG, "Failed to create Matter node"));
+
+    // ----------------------------------------------------------------
+    // Serial configurator (CBOR/SLIP over UART0)
+    // ----------------------------------------------------------------
+    err = app_serial_init();
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "Serial configurator init failed: %d (continuing)", err);
+    }
 
     // ----------------------------------------------------------------
     // Load switch config from NVS (must be after nvs_flash_init)
