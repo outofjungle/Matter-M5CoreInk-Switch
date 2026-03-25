@@ -41,6 +41,9 @@
 static const char *TAG = "app_main";
 
 static M5GFX display;
+static device_mode_t s_device_mode = DEVICE_MODE_NORMAL;
+
+device_mode_t app_get_device_mode(void) { return s_device_mode; }
 
 using namespace esp_matter;
 using namespace esp_matter::attribute;
@@ -136,6 +139,33 @@ void app_display_show_switch(int enabled_index)
     display.endWrite();
     display.waitDisplay();
     ESP_LOGI("display", "Showing slot %d: '%s' / '%s'", slot, cfg->line1, cfg->line2);
+}
+
+// ---------------------------------------------------------------------------
+// E-ink configuration mode screen
+// ---------------------------------------------------------------------------
+
+void app_display_show_config_mode(void)
+{
+    constexpr int kDisplaySize = 200;
+
+    display.startWrite();
+    display.fillScreen(TFT_WHITE);
+    display.setTextDatum(textdatum_t::middle_center);
+    display.setTextColor(TFT_BLACK);
+
+    display.setFont(&fonts::FreeSans12pt7b);
+    display.drawString("Config", kDisplaySize / 2, kDisplaySize / 2 - 30);
+
+    display.setFont(&fonts::FreeSansBold24pt7b);
+    display.drawString("Mode", kDisplaySize / 2, kDisplaySize / 2 + 20);
+
+    display.setFont(&fonts::FreeSans9pt7b);
+    display.drawString("Serial ready", kDisplaySize / 2, kDisplaySize - 18);
+
+    display.endWrite();
+    display.waitDisplay();
+    ESP_LOGI("display", "Config mode screen shown");
 }
 
 // ---------------------------------------------------------------------------
@@ -281,43 +311,35 @@ static void write_fixed_label(uint16_t endpoint_id, const char *label, const cha
 }
 
 // ---------------------------------------------------------------------------
-// app_main
+// CONFIG mode init (serial configurator only, no Matter)
 // ---------------------------------------------------------------------------
 
-extern "C" void app_main()
+static void init_config_mode(void)
+{
+    esp_err_t err = app_switch_config_init();
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "Switch config init failed in CONFIG mode: %d", err);
+    }
+
+    app_driver_led_init();
+    app_driver_led_set(true);   // solid ON — visual indicator of config mode
+
+    err = app_serial_init();
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Serial configurator init failed: %d", err);
+    }
+
+    app_display_show_config_mode();
+    ESP_LOGI(TAG, "CONFIG MODE — serial configurator ready, Matter disabled");
+}
+
+// ---------------------------------------------------------------------------
+// NORMAL mode init (full Matter stack)
+// ---------------------------------------------------------------------------
+
+static void init_normal_mode(void)
 {
     esp_err_t err = ESP_OK;
-
-    // ----------------------------------------------------------------
-    // Power hold — MUST be set HIGH immediately to stay on battery
-    // ----------------------------------------------------------------
-    gpio_config_t pwr_cfg = {
-        .pin_bit_mask = (1ULL << POWER_HOLD_PIN),
-        .mode         = GPIO_MODE_OUTPUT,
-        .pull_up_en   = GPIO_PULLUP_DISABLE,
-        .pull_down_en = GPIO_PULLDOWN_DISABLE,
-        .intr_type    = GPIO_INTR_DISABLE,
-    };
-    gpio_config(&pwr_cfg);
-    gpio_set_level(POWER_HOLD_PIN, 1);
-
-    // ----------------------------------------------------------------
-    // Display — initialise e-ink (rendering happens after Matter starts)
-    // ----------------------------------------------------------------
-    display.begin();
-    display.setRotation(0);
-    display.setEpdMode(epd_mode_t::epd_quality);
-
-    // ----------------------------------------------------------------
-    // NVS
-    // ----------------------------------------------------------------
-    err = nvs_flash_init();
-    if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-        ESP_LOGW(TAG, "NVS partition corrupted — erasing");
-        ESP_ERROR_CHECK(nvs_flash_erase());
-        err = nvs_flash_init();
-    }
-    ESP_ERROR_CHECK(err);
 
     // ----------------------------------------------------------------
     // Create Matter node
@@ -331,14 +353,6 @@ extern "C" void app_main()
                                  app_identification_cb);
     ABORT_APP_ON_FAILURE(node != nullptr,
                          ESP_LOGE(TAG, "Failed to create Matter node"));
-
-    // ----------------------------------------------------------------
-    // Serial configurator (CBOR/SLIP over UART0)
-    // ----------------------------------------------------------------
-    err = app_serial_init();
-    if (err != ESP_OK) {
-        ESP_LOGW(TAG, "Serial configurator init failed: %d (continuing)", err);
-    }
 
     // ----------------------------------------------------------------
     // Load switch config from NVS (must be after nvs_flash_init)
@@ -450,4 +464,73 @@ extern "C" void app_main()
     ESP_LOGI(TAG, "Passcode: %d", CHIP_DEVICE_CONFIG_USE_TEST_SETUP_PIN_CODE);
     ESP_LOGI(TAG, "See docs/img/pairing_qr.png or run: make generate-pairing");
     ESP_LOGI(TAG, "==========================");
+}
+
+// ---------------------------------------------------------------------------
+// app_main — shared early init, then branch on CONFIG_MODE_PIN
+// ---------------------------------------------------------------------------
+
+extern "C" void app_main()
+{
+    // ----------------------------------------------------------------
+    // Power hold — MUST be set HIGH immediately to stay on battery
+    // ----------------------------------------------------------------
+    gpio_config_t pwr_cfg = {
+        .pin_bit_mask = (1ULL << POWER_HOLD_PIN),
+        .mode         = GPIO_MODE_OUTPUT,
+        .pull_up_en   = GPIO_PULLUP_DISABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type    = GPIO_INTR_DISABLE,
+    };
+    gpio_config(&pwr_cfg);
+    gpio_set_level(POWER_HOLD_PIN, 1);
+
+    // ----------------------------------------------------------------
+    // Display — initialise e-ink
+    // ----------------------------------------------------------------
+    display.begin();
+    display.setRotation(0);
+    display.setEpdMode(epd_mode_t::epd_quality);
+
+    // ----------------------------------------------------------------
+    // NVS
+    // ----------------------------------------------------------------
+    esp_err_t err = nvs_flash_init();
+    if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        ESP_LOGW(TAG, "NVS partition corrupted — erasing");
+        ESP_ERROR_CHECK(nvs_flash_erase());
+        err = nvs_flash_init();
+    }
+    ESP_ERROR_CHECK(err);
+
+    // ----------------------------------------------------------------
+    // Read GPIO 5 to determine boot mode
+    // Hold LOW at boot → CONFIG mode; floating/HIGH → NORMAL mode
+    // ----------------------------------------------------------------
+    gpio_config_t cfg5 = {
+        .pin_bit_mask = (1ULL << CONFIG_MODE_PIN),
+        .mode         = GPIO_MODE_INPUT,
+        .pull_up_en   = GPIO_PULLUP_ENABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type    = GPIO_INTR_DISABLE,
+    };
+    gpio_config(&cfg5);
+    vTaskDelay(pdMS_TO_TICKS(10));   // let pull-up settle
+
+    s_device_mode = (gpio_get_level(CONFIG_MODE_PIN) == 0)
+                        ? DEVICE_MODE_CONFIG
+                        : DEVICE_MODE_NORMAL;
+
+    ESP_LOGI(TAG, "Boot mode: %s (GPIO5=%d)",
+             s_device_mode == DEVICE_MODE_CONFIG ? "CONFIG" : "NORMAL",
+             gpio_get_level(CONFIG_MODE_PIN));
+
+    // ----------------------------------------------------------------
+    // Branch
+    // ----------------------------------------------------------------
+    if (s_device_mode == DEVICE_MODE_CONFIG) {
+        init_config_mode();
+    } else {
+        init_normal_mode();
+    }
 }

@@ -24,6 +24,19 @@
 // Power management (MUST be driven HIGH at boot to stay on battery)
 #define POWER_HOLD_PIN   GPIO_NUM_12
 
+// Configuration mode entry (hold LOW at boot → CONFIG mode; floating/HIGH → NORMAL mode)
+#define CONFIG_MODE_PIN  GPIO_NUM_5
+
+// ---------------------------------------------------------------------------
+// Device Mode FSM
+// Determined once at boot by reading CONFIG_MODE_PIN (GPIO 5).
+// ---------------------------------------------------------------------------
+
+typedef enum {
+    DEVICE_MODE_NORMAL,   // Full Matter stack; serial task disabled
+    DEVICE_MODE_CONFIG,   // Serial configurator only; Matter/buttons disabled
+} device_mode_t;
+
 // ---------------------------------------------------------------------------
 // Switch Configuration
 // ---------------------------------------------------------------------------
@@ -130,6 +143,24 @@ esp_err_t app_driver_buttons_init(uint16_t *endpoint_ids, int endpoint_count,
  * @param enabled_index  0-based index into the enabled-switch list.
  */
 void app_display_show_switch(int enabled_index);
+
+/**
+ * @brief Render the configuration mode screen on the e-ink display.
+ *        Implemented in app_main.cpp; called when booting in CONFIG mode.
+ */
+void app_display_show_config_mode(void);
+
+/**
+ * @brief Return the device mode determined at boot (NORMAL or CONFIG).
+ */
+device_mode_t app_get_device_mode(void);
+
+/**
+ * @brief Configure the LED GPIO (output, initially off).
+ *        Called by app_driver_buttons_init() in NORMAL mode, and directly
+ *        by app_main in CONFIG mode (before buttons are initialized).
+ */
+void app_driver_led_init(void);
 
 /**
  * @brief Set the status LED on or off directly (raw GPIO, no timer).
