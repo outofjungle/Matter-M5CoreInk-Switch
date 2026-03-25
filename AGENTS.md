@@ -25,6 +25,15 @@ bd sync               # Sync with git
 2. If yes, create an intermediate commit with a descriptive message
 3. These intermediate commits will be squashed later
 
+## Plans
+
+When creating an implementation plan (before writing code), save it in **both** places and keep them in sync:
+
+1. **Beads issue** — `bd create` with the full plan in `--description`. This is the source of truth for status tracking.
+2. **`docs/<feature>.md`** — markdown file with the same plan content, plus `Beads issue: <id>` at the top.
+
+If the plan changes during implementation, update both the beads description (`bd update <id> --description="..."`) and the docs file.
+
 ## Documentation
 
 When asked to research a subject or topic, save all relevant findings to the `docs/` folder for later reference.

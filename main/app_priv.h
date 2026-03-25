@@ -34,10 +34,16 @@ extern "C" {
 
 #define NUM_SWITCHES     3
 
-// Indices into s_endpoint_ids[] — match button order UP/DOWN/MID
-#define SWITCH_UP_IDX    0
-#define SWITCH_DOWN_IDX  1
-#define SWITCH_MID_IDX   2
+// Indices into s_endpoint_ids[] — Switch 1/2/3 endpoints
+// Up/Down buttons navigate selection; Mid fires on selected switch
+#define SWITCH_1_IDX     0
+#define SWITCH_2_IDX     1
+#define SWITCH_3_IDX     2
+
+// Legacy aliases (used in app_driver.cpp for GPIO pin order)
+#define SWITCH_UP_IDX    SWITCH_1_IDX
+#define SWITCH_DOWN_IDX  SWITCH_2_IDX
+#define SWITCH_MID_IDX   SWITCH_3_IDX
 
 // ---------------------------------------------------------------------------
 // Timing
@@ -59,13 +65,24 @@ typedef void *app_driver_handle_t;
 /**
  * @brief Initialize all three switch buttons.
  *
- * Registers press/release Matter event callbacks and factory-reset handler.
+ * Up/Down navigate the selected switch; Mid fires Matter events on it.
+ * on_switch_selected is called with the new 1-based switch number (1/2/3)
+ * whenever Up or Down changes the selection.
  *
- * @param endpoint_ids  Array of NUM_SWITCHES endpoint IDs, indexed by
- *                      SWITCH_UP_IDX / SWITCH_DOWN_IDX / SWITCH_MID_IDX.
+ * @param endpoint_ids       Array of NUM_SWITCHES endpoint IDs (Switch 1/2/3).
+ * @param on_switch_selected Callback invoked with new switch number on navigation.
  * @return ESP_OK on success
  */
-esp_err_t app_driver_buttons_init(uint16_t *endpoint_ids);
+esp_err_t app_driver_buttons_init(uint16_t *endpoint_ids, void (*on_switch_selected)(int));
+
+/**
+ * @brief Render the currently selected switch number on the e-ink display.
+ *        Implemented in app_main.cpp; called by app_driver on Up/Down press
+ *        and by app_main on commissioning complete.
+ *
+ * @param switch_num  1-based switch number (1, 2, or 3).
+ */
+void app_display_show_switch(int switch_num);
 
 /**
  * @brief Set the status LED on or off directly (raw GPIO, no timer).

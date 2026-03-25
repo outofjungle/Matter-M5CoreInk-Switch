@@ -1,9 +1,12 @@
 /*
    M5 Multipass - Main Application
 
-   Creates a Matter device with three stateless Generic Switch endpoints
-   (one per physical button: UP, DOWN, MID).  Each switch supports single-press
-   (InitialPress + ShortRelease events) compatible with Apple Home automations.
+   Creates a Matter device with three stateless Generic Switch endpoints (1, 2, 3).
+   UP / DOWN buttons navigate the selected switch shown on the e-ink display.
+   MID button fires InitialPress + ShortRelease on the selected switch.
+
+   Display shows the commissioning QR code until the device is commissioned,
+   then shows the currently selected switch number.
 
    Hardware: M5Stack Core Ink (ESP32-PICO-D4), WiFi-only Matter transport.
 */
@@ -97,6 +100,35 @@ static void render_qr_on_display(esp_qrcode_handle_t qrcode)
 }
 
 // ---------------------------------------------------------------------------
+// E-ink switch selector renderer
+// Draws "Switch N" large and centered. Called post-commissioning.
+// ---------------------------------------------------------------------------
+
+void app_display_show_switch(int switch_num)
+{
+    constexpr int kDisplaySize = 200;
+
+    display.startWrite();
+    display.fillScreen(TFT_WHITE);
+
+    // Label: "Switch" in smaller font above the number
+    display.setFont(&fonts::FreeSans12pt7b);
+    display.setTextDatum(textdatum_t::middle_center);
+    display.setTextColor(TFT_BLACK);
+    display.drawString("Switch", kDisplaySize / 2, kDisplaySize / 2 - 30);
+
+    // Number: large, centered
+    display.setFont(&fonts::FreeSansBold24pt7b);
+    char buf[4];
+    snprintf(buf, sizeof(buf), "%d", switch_num);
+    display.drawString(buf, kDisplaySize / 2, kDisplaySize / 2 + 20);
+
+    display.endWrite();
+    display.waitDisplay();
+    ESP_LOGI("display", "Showing Switch %d", switch_num);
+}
+
+// ---------------------------------------------------------------------------
 // Matter event callback
 // ---------------------------------------------------------------------------
 
@@ -110,6 +142,7 @@ static void app_event_cb(const ChipDeviceEvent *event, intptr_t arg)
     case chip::DeviceLayer::DeviceEventType::kCommissioningComplete:
         ESP_LOGI(TAG, "Commissioning complete");
         app_driver_led_blink_start(LED_BLINK_SLOW_MS);
+        app_display_show_switch(1);
         break;
 
     case chip::DeviceLayer::DeviceEventType::kFailSafeTimerExpired:
@@ -292,7 +325,7 @@ extern "C" void app_main()
     // ----------------------------------------------------------------
     // Create Generic Switch endpoints (one per button)
     // ----------------------------------------------------------------
-    const char *switch_labels[NUM_SWITCHES] = { "Up", "Down", "Mid" };
+    const char *switch_labels[NUM_SWITCHES] = { "1", "2", "3" };
 
     for (int i = 0; i < NUM_SWITCHES; i++) {
         generic_switch::config_t sw_cfg = {};
@@ -326,7 +359,7 @@ extern "C" void app_main()
     // ----------------------------------------------------------------
     // Initialise buttons
     // ----------------------------------------------------------------
-    err = app_driver_buttons_init(s_endpoint_ids);
+    err = app_driver_buttons_init(s_endpoint_ids, app_display_show_switch);
     ABORT_APP_ON_FAILURE(err == ESP_OK,
                          ESP_LOGE(TAG, "Failed to init buttons: %d", err));
 
@@ -343,27 +376,36 @@ extern "C" void app_main()
     }
 
     // ----------------------------------------------------------------
-    // Print QR code to serial and render on e-ink display
+    // Display: QR code if not commissioned, switch selector if already commissioned
     // ----------------------------------------------------------------
     {
-        char qr_buf[128];
-        chip::MutableCharSpan qr_span(qr_buf);
-        CHIP_ERROR chip_err = GetQRCode(qr_span, chip::RendezvousInformationFlags(
-            chip::RendezvousInformationFlag::kBLE));
-        if (chip_err == CHIP_NO_ERROR) {
-            ESP_LOGI(TAG, "Matter QR payload: %.*s", (int)qr_span.size(), qr_span.data());
-            s_manual_pairing_code = CHIP_DEVICE_CONFIG_MANUAL_PAIRING_CODE;
-            esp_qrcode_config_t qr_cfg = {
-                .display_func        = render_qr_on_display,
-                .max_qrcode_version  = 10,
-                .qrcode_ecc_level    = ESP_QRCODE_ECC_MED,
-                .user_data           = nullptr,
-            };
-            if (esp_qrcode_generate(&qr_cfg, qr_buf) != ESP_OK) {
-                ESP_LOGE(TAG, "Failed to render QR code on display");
-            }
+        bool already_commissioned =
+            chip::Server::GetInstance().GetFabricTable().FabricCount() > 0;
+
+        if (already_commissioned) {
+            ESP_LOGI(TAG, "Already commissioned — showing switch selector");
+            app_display_show_switch(1);
         } else {
-            ESP_LOGW(TAG, "Failed to get QR payload: %" CHIP_ERROR_FORMAT, chip_err.Format());
+            // Print QR payload to serial and render on e-ink
+            char qr_buf[128];
+            chip::MutableCharSpan qr_span(qr_buf);
+            CHIP_ERROR chip_err = GetQRCode(qr_span, chip::RendezvousInformationFlags(
+                chip::RendezvousInformationFlag::kBLE));
+            if (chip_err == CHIP_NO_ERROR) {
+                ESP_LOGI(TAG, "Matter QR payload: %.*s", (int)qr_span.size(), qr_span.data());
+                s_manual_pairing_code = CHIP_DEVICE_CONFIG_MANUAL_PAIRING_CODE;
+                esp_qrcode_config_t qr_cfg = {
+                    .display_func        = render_qr_on_display,
+                    .max_qrcode_version  = 10,
+                    .qrcode_ecc_level    = ESP_QRCODE_ECC_MED,
+                    .user_data           = nullptr,
+                };
+                if (esp_qrcode_generate(&qr_cfg, qr_buf) != ESP_OK) {
+                    ESP_LOGE(TAG, "Failed to render QR code on display");
+                }
+            } else {
+                ESP_LOGW(TAG, "Failed to get QR payload: %" CHIP_ERROR_FORMAT, chip_err.Format());
+            }
         }
     }
 
