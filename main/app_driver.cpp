@@ -127,7 +127,7 @@ void app_driver_led_blink_stop(void)
 static void btn_up_press_cb(void *arg, void *data)
 {
     led_set(true);
-    s_selected_switch = (s_selected_switch + 1) % NUM_SWITCHES;
+    s_selected_switch = (s_selected_switch + NUM_SWITCHES - 1) % NUM_SWITCHES;
     ESP_LOGI(TAG, "Nav UP → Switch %d selected", s_selected_switch + 1);
     if (s_display_cb) s_display_cb(s_selected_switch + 1);
 }
@@ -142,7 +142,7 @@ static void btn_up_release_cb(void *arg, void *data)
 static void btn_down_press_cb(void *arg, void *data)
 {
     led_set(true);
-    s_selected_switch = (s_selected_switch + NUM_SWITCHES - 1) % NUM_SWITCHES;
+    s_selected_switch = (s_selected_switch + 1) % NUM_SWITCHES;
     ESP_LOGI(TAG, "Nav DOWN → Switch %d selected", s_selected_switch + 1);
     if (s_display_cb) s_display_cb(s_selected_switch + 1);
 }
