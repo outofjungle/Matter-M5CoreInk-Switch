@@ -692,6 +692,7 @@ setState('IDLE');
 
 let port = null;
 let writer = null;
+let activeReader = null;
 let readLoopRunning = false;
 let slipDecoder = null;
 let pendingResolve = null;
@@ -699,10 +700,10 @@ let pendingReject  = null;
 let pendingTimeout = null;
 
 async function readLoop() {
-  const reader = port.readable.getReader();
+  activeReader = port.readable.getReader();
   try {
     while (readLoopRunning) {
-      const { value, done } = await reader.read();
+      const { value, done } = await activeReader.read();
       if (done) break;
       if (value) {
         const allPrintable = [...value].every(b => (b >= 0x20 && b < 0x7f) || b === 0x0a || b === 0x0d);
@@ -713,7 +714,8 @@ async function readLoop() {
   } catch (e) {
     if (readLoopRunning) log('[read error] ' + e.message);
   } finally {
-    reader.releaseLock();
+    activeReader.releaseLock();
+    activeReader = null;
   }
 }
 
@@ -752,9 +754,11 @@ function sendCommand(obj, timeoutMs = 5000) {
 
 async function closePort() {
   readLoopRunning = false;
+  clearTimeout(pendingTimeout);
   if (pendingReject) { pendingReject(new Error('Disconnected')); pendingReject = null; pendingResolve = null; }
-  try { if (writer) { writer.releaseLock(); writer = null; } } catch (_) {}
-  try { if (port)   { await port.close();   port   = null; } } catch (_) {}
+  if (activeReader)  { try { await activeReader.cancel(); } catch (_) {} }
+  try { if (writer)  { writer.releaseLock(); writer = null; } } catch (_) {}
+  try { if (port)    { await port.close();   port   = null; } } catch (_) {}
 }
 
 // ---------------------------------------------------------------------------
