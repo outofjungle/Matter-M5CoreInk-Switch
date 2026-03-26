@@ -140,14 +140,20 @@
       accent-color: #2563eb;
     }
 
+    .card-msg {
+      padding: 10px 20px;
+      min-height: 36px;
+      display: flex;
+      align-items: center;
+      border-bottom: 1px solid #eee;
+    }
+
     .card-footer {
       display: flex;
       align-items: center;
-      justify-content: space-between;
+      justify-content: flex-end;
       padding: 16px 20px;
       border-top: 1px solid #eee;
-      gap: 12px;
-      flex-wrap: wrap;
     }
 
     .action-btns { display: flex; gap: 10px; }
@@ -360,6 +366,10 @@
     <button id="btn-connect">Connect</button>
   </div>
 
+  <div class="card-msg">
+    <div id="msg"></div>
+  </div>
+
   <div id="config-section" style="display:none">
     <table>
       <thead>
@@ -375,7 +385,6 @@
     </table>
 
     <div class="card-footer">
-      <div id="msg"></div>
       <div class="action-btns">
         <button class="btn" id="btn-read" disabled>Read from Device</button>
         <button class="btn" id="btn-write" disabled>Write to Device</button>
@@ -573,29 +582,22 @@ class SlipDecoder {
 }
 
 // ---------------------------------------------------------------------------
-// UI State
+// DOM references
 // ---------------------------------------------------------------------------
 
 const MAX_SLOTS = 16;
 
-let port = null;
-let writer = null;
-let readLoopRunning = false;
-
-let slipDecoder = null;
-let pendingResolve = null;
-let pendingReject  = null;
-let pendingTimeout = null;
-
-const btnConnect = document.getElementById('btn-connect');
-const btnRead    = document.getElementById('btn-read');
-const btnWrite   = document.getElementById('btn-write');
-const statusDot  = document.getElementById('status-dot');
-const statusText = document.getElementById('status-text');
-const msgEl      = document.getElementById('msg');
-const consoleEl  = document.getElementById('console');
-const slotsBody  = document.getElementById('slots');
-const btnToggle  = document.getElementById('btn-toggle-console');
+const btnConnect    = document.getElementById('btn-connect');
+const btnRead       = document.getElementById('btn-read');
+const btnWrite      = document.getElementById('btn-write');
+const statusDot     = document.getElementById('status-dot');
+const statusText    = document.getElementById('status-text');
+const msgEl         = document.getElementById('msg');
+const consoleEl     = document.getElementById('console');
+const slotsBody     = document.getElementById('slots');
+const btnToggle     = document.getElementById('btn-toggle-console');
+const configSection = document.getElementById('config-section');
+const cardMsg       = document.getElementById('msg').parentElement;
 
 // Build table rows
 for (let i = 0; i < MAX_SLOTS; i++) {
@@ -608,14 +610,12 @@ for (let i = 0; i < MAX_SLOTS; i++) {
     <td><input type="checkbox" id="en-${i}"></td>
   `;
   slotsBody.appendChild(tr);
-
   document.getElementById(`en-${i}`).addEventListener('change', () => updateRowStyle(i));
 }
 
 function updateRowStyle(i) {
   const tr = document.getElementById(`slot-${i}`);
-  const checked = document.getElementById(`en-${i}`).checked;
-  tr.classList.toggle('disabled', !checked);
+  tr.classList.toggle('disabled', !document.getElementById(`en-${i}`).checked);
 }
 
 btnToggle.addEventListener('click', () => {
@@ -628,78 +628,75 @@ function log(text) {
   consoleEl.scrollTop = consoleEl.scrollHeight;
 }
 
-function setStatus(state, text) {
-  statusDot.className = 'status-dot ' + state;
-  statusText.textContent = text;
-}
-
-function setMsg(text, type = '') {
-  msgEl.textContent = text;
-  msgEl.className = type;
-}
-
-const configSection = document.getElementById('config-section');
-
-function setConnected(connected) {
-  if (connected) {
-    btnConnect.textContent = 'Disconnect';
-    btnConnect.classList.add('disconnect');
-    setStatus('connected', 'Connected');
-  } else {
-    btnConnect.textContent = 'Connect';
-    btnConnect.classList.remove('disconnect');
-    btnRead.disabled = true;
-    btnWrite.disabled = true;
-    configSection.style.display = 'none';
-    setStatus('', 'Disconnected');
-  }
-}
-
 // ---------------------------------------------------------------------------
-// Serial connection
+// FSM
+//
+//  IDLE → CONNECTING → READING → READY ⇄ CONFIRMING
+//           ↓              ↓        ↓           ↓
+//    HANDSHAKE_FAILED    ERROR    ERROR       WRITING → REBOOTING → IDLE
 // ---------------------------------------------------------------------------
 
-async function connect() {
-  if (!('serial' in navigator)) {
-    setMsg('Web Serial API not supported. Use Chrome or Edge.', 'error');
-    return;
+let appState = 'IDLE';
+
+// Per-state UI configuration
+const STATE_UI = {
+  //              dot          statusText              msg                        msgClass  config   read     write    connect     connectText  connectClass
+  IDLE:          ['',          'Disconnected',         '',                        '',       false,   false,   false,   true,       'Connect',   ''],
+  CONNECTING:    ['',          'Connecting\u2026',     'Connecting\u2026',        '',       false,   false,   false,   false,      'Connect',   ''],
+  HANDSHAKE_FAILED: ['error',  'Not in config mode',   'Device is not in config mode. Hold the top button while powering on, then reconnect.',
+                                                                                  'error',  false,   false,   false,   true,       'Connect',   ''],
+  READING:       ['connected', 'Connected',            'Reading from device\u2026', '',     null,    false,   false,   true,       'Disconnect','disconnect'],
+  READY:         ['connected', 'Connected',            'Read complete.',          'ok',     true,    true,    true,    true,       'Disconnect','disconnect'],
+  CONFIRMING:    ['connected', 'Connected',            null,                      null,     true,    true,    true,    false,      'Disconnect','disconnect'],
+  WRITING:       ['connected', 'Connected',            'Writing\u2026',           '',       true,    false,   false,   false,      'Disconnect','disconnect'],
+  REBOOTING:     ['connected', 'Connected',            'Write OK \u2014 rebooting device\u2026', '', true, false, false, false,  'Disconnect','disconnect'],
+  ERROR:         ['connected', 'Connected',            null,                      null,     true,    true,    true,    true,       'Disconnect','disconnect'],
+};
+
+function setState(newState, errorMsg) {
+  appState = newState;
+  log('[state] ' + newState + (errorMsg ? ': ' + errorMsg : ''));
+
+  const ui = STATE_UI[newState];
+  const [dot, sText, defaultMsg, msgClass, showConfig, readEn, writeEn, connectEn, connectText, connectClass] = ui;
+
+  statusDot.className  = 'status-dot ' + dot;
+  statusText.textContent = sText;
+
+  // Message: explicit errorMsg > per-state default (null = keep current)
+  if (errorMsg !== undefined) {
+    msgEl.textContent = errorMsg;
+    msgEl.className   = 'error';
+  } else if (defaultMsg !== null) {
+    msgEl.textContent = defaultMsg;
+    msgEl.className   = msgClass || '';
   }
-  try {
-    port = await navigator.serial.requestPort();
-    await port.open({ baudRate: 115200 });
+  cardMsg.style.display = msgEl.textContent ? '' : 'none';
 
-    writer = port.writable.getWriter();
+  // Config section — null means "keep current" (used for READING re-read)
+  if (showConfig !== null) configSection.style.display = showConfig ? '' : 'none';
 
-    slipDecoder = new SlipDecoder(onSlipFrame);
-    readLoopRunning = true;
-    readLoop();
+  btnRead.disabled  = !readEn;
+  btnWrite.disabled = !writeEn;
 
-    log('[connected]');
-    const ok = await handshake();
-    if (!ok) {
-      await disconnect();
-      setStatus('error', 'Not in config mode');
-      setMsg('Device is not in config mode. Hold the top button while powering on, then reconnect.', 'error');
-      return;
-    }
-    setConnected(true);
-    await readFromDevice();
-  } catch (e) {
-    setMsg('Connection failed: ' + e.message, 'error');
-    log('[connect error] ' + e.message);
-  }
+  btnConnect.disabled   = !connectEn;
+  btnConnect.textContent = connectText;
+  btnConnect.className  = connectClass ? 'disconnect' : '';
 }
 
-async function disconnect() {
-  readLoopRunning = false;
-  if (pendingReject) { pendingReject(new Error('Disconnected')); }
-  try {
-    if (writer)     { writer.releaseLock(); writer = null; }
-    if (port)       { await port.close(); port = null; }
-  } catch (_) {}
-  setConnected(false);
-  log('[disconnected]');
-}
+setState('IDLE');
+
+// ---------------------------------------------------------------------------
+// Serial transport
+// ---------------------------------------------------------------------------
+
+let port = null;
+let writer = null;
+let readLoopRunning = false;
+let slipDecoder = null;
+let pendingResolve = null;
+let pendingReject  = null;
+let pendingTimeout = null;
 
 async function readLoop() {
   const reader = port.readable.getReader();
@@ -708,11 +705,8 @@ async function readLoop() {
       const { value, done } = await reader.read();
       if (done) break;
       if (value) {
-        // Log non-binary bytes as text (ASCII log lines)
         const allPrintable = [...value].every(b => (b >= 0x20 && b < 0x7f) || b === 0x0a || b === 0x0d);
-        if (allPrintable) {
-          log(new TextDecoder().decode(value).trimEnd());
-        }
+        if (allPrintable) log(new TextDecoder().decode(value).trimEnd());
         slipDecoder.feed(value);
       }
     }
@@ -722,10 +716,6 @@ async function readLoop() {
     reader.releaseLock();
   }
 }
-
-// ---------------------------------------------------------------------------
-// Request / response
-// ---------------------------------------------------------------------------
 
 function onSlipFrame(frame) {
   try {
@@ -753,30 +743,68 @@ function sendCommand(obj, timeoutMs = 5000) {
       pendingReject  = null;
       reject(new Error('Response timeout'));
     }, timeoutMs);
-
-    const cbor = CBOR.toBytes(obj);
+    const cbor  = CBOR.toBytes(obj);
     const frame = slipEncode(cbor);
     log('[tx] ' + JSON.stringify(obj));
     writer.write(frame);
   });
 }
 
+async function closePort() {
+  readLoopRunning = false;
+  if (pendingReject) { pendingReject(new Error('Disconnected')); pendingReject = null; pendingResolve = null; }
+  try { if (writer) { writer.releaseLock(); writer = null; } } catch (_) {}
+  try { if (port)   { await port.close();   port   = null; } } catch (_) {}
+}
+
 // ---------------------------------------------------------------------------
-// Handshake — confirm device is in config mode
+// Connection flow
 // ---------------------------------------------------------------------------
 
-async function handshake() {
-  setMsg('Connecting…');
-  try {
-    const resp = await sendCommand({ cmd: 'ping' }, 1500);
-    if (resp.status === 'ok') {
-      log('[handshake] mode=' + resp.mode + ' fw=' + resp.fw);
-      return true;
-    }
-  } catch (e) {
-    log('[handshake failed] ' + e.message);
+async function connect() {
+  if (!('serial' in navigator)) {
+    setState('IDLE', 'Web Serial API not supported. Use Chrome or Edge.');
+    return;
   }
-  return false;
+  setState('CONNECTING');
+  try {
+    port   = await navigator.serial.requestPort();
+    await port.open({ baudRate: 115200 });
+    writer = port.writable.getWriter();
+    slipDecoder    = new SlipDecoder(onSlipFrame);
+    readLoopRunning = true;
+    readLoop();
+    log('[port open]');
+
+    // Handshake — confirm device is in config mode
+    let pingOk = false;
+    try {
+      const resp = await sendCommand({ cmd: 'ping' }, 1500);
+      pingOk = true; // any response = RX task is running = device is in config mode
+      if (resp.status === 'ok') log('[handshake] mode=' + resp.mode + ' fw=' + resp.fw);
+      else log('[handshake] device responded (legacy firmware, no ping support)');
+    } catch (e) {
+      log('[handshake failed] ' + e.message);
+    }
+
+    if (!pingOk) {
+      await closePort();
+      setState('HANDSHAKE_FAILED');
+      return;
+    }
+
+    await readFromDevice();
+  } catch (e) {
+    await closePort();
+    setState('IDLE', 'Connection failed: ' + e.message);
+    log('[connect error] ' + e.message);
+  }
+}
+
+async function disconnect() {
+  await closePort();
+  setState('IDLE');
+  log('[disconnected]');
 }
 
 // ---------------------------------------------------------------------------
@@ -784,48 +812,43 @@ async function handshake() {
 // ---------------------------------------------------------------------------
 
 async function readFromDevice() {
-  setMsg('Reading from device…');
-  btnRead.disabled = true;
-  btnWrite.disabled = true;
+  setState('READING');
   try {
     const resp = await sendCommand({ cmd: 'read' });
     if (resp.status !== 'ok') {
-      setMsg('Device error: ' + (resp.msg || resp.status), 'error');
+      setState('ERROR', 'Device error: ' + (resp.msg || resp.status));
       return;
     }
     const slots = resp.slots;
     if (!Array.isArray(slots) || slots.length !== MAX_SLOTS) {
-      setMsg('Unexpected response format', 'error');
+      setState('ERROR', 'Unexpected response format');
       return;
     }
     for (let i = 0; i < MAX_SLOTS; i++) {
-      document.getElementById(`l1-${i}`).value = slots[i].l1 ?? '';
-      document.getElementById(`l2-${i}`).value = slots[i].l2 ?? '';
+      document.getElementById(`l1-${i}`).value   = slots[i].l1 ?? '';
+      document.getElementById(`l2-${i}`).value   = slots[i].l2 ?? '';
       document.getElementById(`en-${i}`).checked = !!slots[i].en;
       updateRowStyle(i);
     }
-    configSection.style.display = '';
-    btnRead.disabled = false;
-    btnWrite.disabled = false;
-    setMsg('Read complete.', 'ok');
+    setState('READY');
   } catch (e) {
-    setMsg('Error: ' + e.message, 'error');
+    setState('ERROR', 'Read error: ' + e.message);
     log('[read error] ' + e.message);
-    btnRead.disabled = false;
-    btnWrite.disabled = false;
   }
 }
 
-btnRead.addEventListener('click', readFromDevice);
+btnRead.addEventListener('click', () => {
+  if (appState === 'READY' || appState === 'ERROR') readFromDevice();
+});
 
 // ---------------------------------------------------------------------------
 // Write confirmation modal
 // ---------------------------------------------------------------------------
 
-const modalOverlay  = document.getElementById('modal-overlay');
-const modalSlots    = document.getElementById('modal-slots');
-const modalCancel   = document.getElementById('modal-cancel');
-const modalConfirm  = document.getElementById('modal-confirm');
+const modalOverlay = document.getElementById('modal-overlay');
+const modalSlots   = document.getElementById('modal-slots');
+const modalCancel  = document.getElementById('modal-cancel');
+const modalConfirm = document.getElementById('modal-confirm');
 
 function showWriteConfirm(slots) {
   return new Promise(resolve => {
@@ -848,6 +871,7 @@ function showWriteConfirm(slots) {
       modalSlots.appendChild(row);
     });
 
+    setState('CONFIRMING');
     modalOverlay.classList.add('visible');
 
     function finish(result) {
@@ -856,8 +880,8 @@ function showWriteConfirm(slots) {
       modalConfirm.removeEventListener('click', onConfirm);
       resolve(result);
     }
-    function onCancel()  { finish(false); }
-    function onConfirm() { finish(true);  }
+    function onCancel()  { setState('READY'); finish(false); }
+    function onConfirm() { finish(true); }
 
     modalCancel.addEventListener('click', onCancel);
     modalConfirm.addEventListener('click', onConfirm);
@@ -869,75 +893,51 @@ function showWriteConfirm(slots) {
 // ---------------------------------------------------------------------------
 
 btnWrite.addEventListener('click', async () => {
+  if (appState !== 'READY') return;
+
   // Validate
   let errorMsg = null;
   let enabledCount = 0;
-
-  // Clear previous error highlights
   for (let i = 0; i < MAX_SLOTS; i++) {
     document.getElementById(`l1-${i}`).classList.remove('error');
     document.getElementById(`l2-${i}`).classList.remove('error');
   }
-
   const slots = [];
   for (let i = 0; i < MAX_SLOTS; i++) {
     const l1 = document.getElementById(`l1-${i}`).value.trim();
     const l2 = document.getElementById(`l2-${i}`).value.trim();
     const en = document.getElementById(`en-${i}`).checked;
-
-    if (!l1) {
-      document.getElementById(`l1-${i}`).classList.add('error');
-      errorMsg = errorMsg || `Slot ${i + 1}: Line 1 is empty`;
-    }
-    if (!l2) {
-      document.getElementById(`l2-${i}`).classList.add('error');
-      errorMsg = errorMsg || `Slot ${i + 1}: Line 2 is empty`;
-    }
-    if (l1.length > 8) {
-      document.getElementById(`l1-${i}`).classList.add('error');
-      errorMsg = errorMsg || `Slot ${i + 1}: Line 1 exceeds 8 characters`;
-    }
-    if (l2.length > 8) {
-      document.getElementById(`l2-${i}`).classList.add('error');
-      errorMsg = errorMsg || `Slot ${i + 1}: Line 2 exceeds 8 characters`;
-    }
-
+    if (!l1)        { document.getElementById(`l1-${i}`).classList.add('error'); errorMsg = errorMsg || `Slot ${i + 1}: Line 1 is empty`; }
+    if (!l2)        { document.getElementById(`l2-${i}`).classList.add('error'); errorMsg = errorMsg || `Slot ${i + 1}: Line 2 is empty`; }
+    if (l1.length > 8) { document.getElementById(`l1-${i}`).classList.add('error'); errorMsg = errorMsg || `Slot ${i + 1}: Line 1 exceeds 8 characters`; }
+    if (l2.length > 8) { document.getElementById(`l2-${i}`).classList.add('error'); errorMsg = errorMsg || `Slot ${i + 1}: Line 2 exceeds 8 characters`; }
     if (en) enabledCount++;
     slots.push({ l1, l2, en });
   }
-
-  if (errorMsg) { setMsg(errorMsg, 'error'); return; }
-  if (enabledCount === 0) { setMsg('At least one slot must be enabled.', 'error'); return; }
+  if (errorMsg)        { msgEl.textContent = errorMsg; msgEl.className = 'error'; return; }
+  if (enabledCount === 0) { msgEl.textContent = 'At least one slot must be enabled.'; msgEl.className = 'error'; return; }
 
   const confirmed = await showWriteConfirm(slots);
   if (!confirmed) return;
 
-  setMsg('Writing…');
-  btnRead.disabled = true;
-  btnWrite.disabled = true;
-
+  setState('WRITING');
   try {
     const writeResp = await sendCommand({ cmd: 'write', slots }, 8000);
     if (writeResp.status !== 'ok') {
-      setMsg('Write error: ' + (writeResp.msg || writeResp.status), 'error');
+      setState('ERROR', 'Write error: ' + (writeResp.msg || writeResp.status));
       return;
     }
-    setMsg('Write OK — rebooting device…');
-    // Give device a moment then send reboot
+    setState('REBOOTING');
     await new Promise(r => setTimeout(r, 300));
     try {
       const rebootResp = await sendCommand({ cmd: 'reboot' }, 3000);
       log('[reboot] ' + JSON.stringify(rebootResp));
-    } catch (_) {
-      // Reboot causes disconnect — that's fine
-    }
+    } catch (_) { /* expected — device disconnects */ }
     log('[done] device rebooted');
     await disconnect();
   } catch (e) {
-    setMsg('Error: ' + e.message, 'error');
+    setState('ERROR', 'Write error: ' + e.message);
     log('[write error] ' + e.message);
-    btnRead.disabled = false;
-    btnWrite.disabled = false;
   }
 });
 
@@ -946,10 +946,10 @@ btnWrite.addEventListener('click', async () => {
 // ---------------------------------------------------------------------------
 
 btnConnect.addEventListener('click', async () => {
-  if (port) {
-    await disconnect();
-  } else {
+  if (appState === 'IDLE' || appState === 'HANDSHAKE_FAILED') {
     await connect();
+  } else if (['READING', 'READY', 'ERROR'].includes(appState)) {
+    await disconnect();
   }
 });
 </script>
