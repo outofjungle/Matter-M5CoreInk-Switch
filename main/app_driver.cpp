@@ -108,17 +108,17 @@ esp_err_t app_switch_config_init(void)
         uint8_t en = 0;
 
         sw_key(key, sizeof(key), i, "l1");
-        sz = sizeof(s_configs[i].line1);
-        if (nvs_get_str(h, key, s_configs[i].line1, &sz) != ESP_OK) {
-            strncpy(s_configs[i].line1, "Switch", sizeof(s_configs[i].line1));
+        sz = sizeof(s_configs[i].button_name);
+        if (nvs_get_str(h, key, s_configs[i].button_name, &sz) != ESP_OK) {
+            strncpy(s_configs[i].button_name, "Switch", sizeof(s_configs[i].button_name));
         }
 
         sw_key(key, sizeof(key), i, "l2");
-        sz = sizeof(s_configs[i].line2);
+        sz = sizeof(s_configs[i].room_name);
         char num_buf[9];
         snprintf(num_buf, sizeof(num_buf), "%d", i + 1);
-        if (nvs_get_str(h, key, s_configs[i].line2, &sz) != ESP_OK) {
-            strncpy(s_configs[i].line2, num_buf, sizeof(s_configs[i].line2));
+        if (nvs_get_str(h, key, s_configs[i].room_name, &sz) != ESP_OK) {
+            strncpy(s_configs[i].room_name, num_buf, sizeof(s_configs[i].room_name));
         }
 
         sw_key(key, sizeof(key), i, "en");
@@ -134,11 +134,11 @@ esp_err_t app_switch_config_init(void)
 
     // Sanitize in-memory values (NVS write may have stored bad data via serial)
     for (int i = 0; i < MAX_SWITCHES; i++) {
-        if (s_configs[i].line1[0] == '\0') {
-            strncpy(s_configs[i].line1, "Switch", sizeof(s_configs[i].line1));
+        if (s_configs[i].button_name[0] == '\0') {
+            strncpy(s_configs[i].button_name, "Switch", sizeof(s_configs[i].button_name));
         }
-        if (s_configs[i].line2[0] == '\0') {
-            snprintf(s_configs[i].line2, sizeof(s_configs[i].line2), "%d", i + 1);
+        if (s_configs[i].room_name[0] == '\0') {
+            snprintf(s_configs[i].room_name, sizeof(s_configs[i].room_name), "%d", i + 1);
         }
     }
 

@@ -61,9 +61,9 @@ typedef enum {
 // ---------------------------------------------------------------------------
 
 struct switch_config_t {
-    char line1[9];   // display line 1 (max 8 chars + null)
-    char line2[9];   // display line 2 (max 8 chars + null)
-    bool enabled;    // if false, no Matter endpoint is created for this slot
+    char button_name[9];   // button label, upper display (max 8 chars + null)
+    char room_name[17];    // room label, lower display (max 16 chars + null)
+    bool enabled;          // if false, no Matter endpoint is created for this slot
 };
 
 // ---------------------------------------------------------------------------
@@ -108,8 +108,8 @@ int app_driver_get_selected_switch(void);
  *        Does not update in-memory state — caller should esp_restart() after.
  *
  * @param slot  0..MAX_SWITCHES-1
- * @param l1    Line 1 text (max 8 chars, non-empty)
- * @param l2    Line 2 text (max 8 chars, non-empty)
+ * @param l1    Button name text (max 8 chars, non-empty)
+ * @param l2    Room name text (max 16 chars, non-empty)
  * @param en    Enabled flag
  */
 esp_err_t app_switch_nvs_write_slot(int slot, const char *l1, const char *l2, bool en);

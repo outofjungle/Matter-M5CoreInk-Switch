@@ -115,14 +115,15 @@ sequenceDiagram
 **On failure**, the webapp disconnects and shows: *"Device is not in config mode. Hold the top button while powering on, then reconnect."*
 
 ### Validation (firmware side, on write)
-- `l1`: string, max 8 chars, non-empty
-- `l2`: string, max 8 chars, non-empty
+- `l1` (button name): string, max 8 chars, non-empty
+- `l2` (room name): string, max 16 chars, non-empty
 - `en`: boolean
 - Reject unknown keys
 - At least 1 slot must remain enabled (prevent bricking the UI)
 
 ### Validation (firmware side, on boot/read from NVS)
-- If a string exceeds 8 chars, truncate
+- If button name exceeds 8 chars, truncate; if empty, default to `"Switch"`
+- If room name exceeds 16 chars, truncate; if empty, default to slot number
 - If `en` is not 0 or 1, default to 0
 - If no slots are enabled, force slot 0 enabled
 - If `sel_sw` >= enabled count, clamp to 0
@@ -144,7 +145,7 @@ sequenceDiagram
 **`web/index.html`** — self-contained web configurator
 - Web Serial API connection (115200 baud)
 - SLIP framing + CBOR encode/decode (inline minimal JS library)
-- UI: table of 16 switch slots, each with line1/line2 text inputs + enabled checkbox
+- UI: table of 16 switch slots, each with button name/room name text inputs + enabled checkbox
 - "Read from device" button → sends read command, populates form
 - "Write to device" button → validates, sends write + reboot commands
 - Status indicator (connected/disconnected)
@@ -161,9 +162,8 @@ sequenceDiagram
 
 Add to `app_switch_config_init()`:
 1. After loading all 16 configs, verify each:
-   - If `line1` is empty, set to `"Switch"`
-   - If `line2` is empty, set to slot number as string
-   - Strings are already length-bounded by `nvs_get_str` with `sizeof(line1)` = 9
+   - If `button_name` is empty, set to `"Switch"`; `sizeof(button_name)` = 9 (max 8 chars)
+   - If `room_name` is empty, set to slot number as string; `sizeof(room_name)` = 17 (max 16 chars)
 2. If `s_enabled_count == 0`, force `s_configs[0].enabled = true` and write back to NVS
 3. After loading `sel_sw`, clamp: `if (val >= s_enabled_count) val = 0`
 

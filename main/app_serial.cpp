@@ -142,9 +142,9 @@ static void handle_read(void)
         const switch_config_t *cfg = app_switch_get_config(i);
         cbor_encoder_create_map(&arr, &slot_enc, 3);
         cbor_encode_text_stringz(&slot_enc, "l1");
-        cbor_encode_text_stringz(&slot_enc, cfg ? cfg->line1 : "Switch");
+        cbor_encode_text_stringz(&slot_enc, cfg ? cfg->button_name : "Switch");
         cbor_encode_text_stringz(&slot_enc, "l2");
-        cbor_encode_text_stringz(&slot_enc, cfg ? cfg->line2 : "?");
+        cbor_encode_text_stringz(&slot_enc, cfg ? cfg->room_name : "?");
         cbor_encode_text_stringz(&slot_enc, "en");
         cbor_encode_boolean(&slot_enc, cfg && cfg->enabled);
         cbor_encoder_close_container(&arr, &slot_enc);
@@ -161,8 +161,8 @@ static void handle_read(void)
 // ---------------------------------------------------------------------------
 
 struct incoming_slot_t {
-    char l1[9];
-    char l2[9];
+    char l1[9];    // button name (max 8 chars)
+    char l2[17];   // room name (max 16 chars)
     bool en;
     bool valid;
 };

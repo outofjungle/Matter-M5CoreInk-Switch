@@ -128,17 +128,17 @@ void app_display_show_switch(int enabled_index)
     display.setTextDatum(textdatum_t::middle_center);
     display.setTextColor(TFT_BLACK);
 
-    // line1: smaller font, upper half
+    // room_name: smaller font, upper half
     display.setFont(&fonts::FreeSans12pt7b);
-    display.drawString(cfg->line1, kDisplaySize / 2, kDisplaySize / 2 - 30);
+    display.drawString(cfg->room_name, kDisplaySize / 2, kDisplaySize / 2 - 30);
 
-    // line2: large font, lower half
+    // button_name: large font, lower half
     display.setFont(&fonts::FreeSansBold24pt7b);
-    display.drawString(cfg->line2, kDisplaySize / 2, kDisplaySize / 2 + 20);
+    display.drawString(cfg->button_name, kDisplaySize / 2, kDisplaySize / 2 + 20);
 
     display.endWrite();
     display.waitDisplay();
-    ESP_LOGI("display", "Showing slot %d: '%s' / '%s'", slot, cfg->line1, cfg->line2);
+    ESP_LOGI("display", "Showing slot %d: '%s' / '%s'", slot, cfg->button_name, cfg->room_name);
 }
 
 // ---------------------------------------------------------------------------
@@ -383,7 +383,7 @@ static void init_normal_mode(void)
 
         s_endpoint_ids[s_ep_count] = endpoint::get_id(ep);
         ESP_LOGI(TAG, "Slot %d '%s %s' → endpoint %d",
-                 slot, cfg->line1, cfg->line2, s_endpoint_ids[s_ep_count]);
+                 slot, cfg->button_name, cfg->room_name, s_endpoint_ids[s_ep_count]);
 
         // Fixed Label cluster — label value is "line1 line2" (e.g. "Switch 1")
         cluster::fixed_label::config_t fl_cfg = {};
@@ -391,8 +391,8 @@ static void init_normal_mode(void)
         ABORT_APP_ON_FAILURE(fl != nullptr,
                              ESP_LOGE(TAG, "Failed to create fixed_label cluster slot=%d", slot));
 
-        char label_val[18];
-        snprintf(label_val, sizeof(label_val), "%s %s", cfg->line1, cfg->line2);
+        char label_val[26];  // 8 (button) + 1 (space) + 16 (room) + 1 (null)
+        snprintf(label_val, sizeof(label_val), "%s %s", cfg->button_name, cfg->room_name);
         write_fixed_label(s_endpoint_ids[s_ep_count], "name", label_val);
         ESP_LOGI(TAG, "Slot %d fixed label 'name'='%s' written to NVS", slot, label_val);
 

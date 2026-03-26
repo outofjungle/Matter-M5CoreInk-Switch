@@ -375,8 +375,8 @@
       <thead>
         <tr>
           <th>#</th>
-          <th>Line 1 (up to 8 chars)</th>
-          <th>Line 2 (up to 8 chars)</th>
+          <th>Button Name (up to 8 chars)</th>
+          <th>Room Name (up to 16 chars)</th>
           <th>Enabled</th>
         </tr>
       </thead>
@@ -606,7 +606,7 @@ for (let i = 0; i < MAX_SLOTS; i++) {
   tr.innerHTML = `
     <td>${i + 1}</td>
     <td><input type="text" id="l1-${i}" maxlength="8" placeholder="Switch"></td>
-    <td><input type="text" id="l2-${i}" maxlength="8" placeholder="${i + 1}"></td>
+    <td><input type="text" id="l2-${i}" maxlength="16" placeholder="${i + 1}"></td>
     <td><input type="checkbox" id="en-${i}"></td>
   `;
   slotsBody.appendChild(tr);
@@ -911,10 +911,10 @@ btnWrite.addEventListener('click', async () => {
     const l1 = document.getElementById(`l1-${i}`).value.trim();
     const l2 = document.getElementById(`l2-${i}`).value.trim();
     const en = document.getElementById(`en-${i}`).checked;
-    if (!l1)        { document.getElementById(`l1-${i}`).classList.add('error'); errorMsg = errorMsg || `Slot ${i + 1}: Line 1 is empty`; }
-    if (!l2)        { document.getElementById(`l2-${i}`).classList.add('error'); errorMsg = errorMsg || `Slot ${i + 1}: Line 2 is empty`; }
-    if (l1.length > 8) { document.getElementById(`l1-${i}`).classList.add('error'); errorMsg = errorMsg || `Slot ${i + 1}: Line 1 exceeds 8 characters`; }
-    if (l2.length > 8) { document.getElementById(`l2-${i}`).classList.add('error'); errorMsg = errorMsg || `Slot ${i + 1}: Line 2 exceeds 8 characters`; }
+    if (!l1)         { document.getElementById(`l1-${i}`).classList.add('error'); errorMsg = errorMsg || `Slot ${i + 1}: Button Name is empty`; }
+    if (!l2)         { document.getElementById(`l2-${i}`).classList.add('error'); errorMsg = errorMsg || `Slot ${i + 1}: Room Name is empty`; }
+    if (l1.length > 8)  { document.getElementById(`l1-${i}`).classList.add('error'); errorMsg = errorMsg || `Slot ${i + 1}: Button Name exceeds 8 characters`; }
+    if (l2.length > 16) { document.getElementById(`l2-${i}`).classList.add('error'); errorMsg = errorMsg || `Slot ${i + 1}: Room Name exceeds 16 characters`; }
     if (en) enabledCount++;
     slots.push({ l1, l2, en });
   }
