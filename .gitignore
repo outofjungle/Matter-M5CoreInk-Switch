@@ -15,3 +15,9 @@ screenlog.0
 # Dolt database files (added by bd init)
 .dolt/
 *.db
+
+# Beads credentials
+.beads/.beads-credential-key
+
+# Obsidian editor config
+.obsidian/
