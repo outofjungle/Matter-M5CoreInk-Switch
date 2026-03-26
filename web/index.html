@@ -240,24 +240,26 @@
     <button id="btn-connect">Connect</button>
   </div>
 
-  <table>
-    <thead>
-      <tr>
-        <th>#</th>
-        <th>Line 1 (up to 8 chars)</th>
-        <th>Line 2 (up to 8 chars)</th>
-        <th>Enabled</th>
-      </tr>
-    </thead>
-    <tbody id="slots">
-    </tbody>
-  </table>
+  <div id="config-section" style="display:none">
+    <table>
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Line 1 (up to 8 chars)</th>
+          <th>Line 2 (up to 8 chars)</th>
+          <th>Enabled</th>
+        </tr>
+      </thead>
+      <tbody id="slots">
+      </tbody>
+    </table>
 
-  <div class="card-footer">
-    <div id="msg"></div>
-    <div class="action-btns">
-      <button class="btn" id="btn-read" disabled>Read from Device</button>
-      <button class="btn" id="btn-write" disabled>Write to Device</button>
+    <div class="card-footer">
+      <div id="msg"></div>
+      <div class="action-btns">
+        <button class="btn" id="btn-read" disabled>Read from Device</button>
+        <button class="btn" id="btn-write" disabled>Write to Device</button>
+      </div>
     </div>
   </div>
 
@@ -496,15 +498,6 @@ function updateRowStyle(i) {
   tr.classList.toggle('disabled', !checked);
 }
 
-// Default slot values
-for (let i = 0; i < MAX_SLOTS; i++) {
-  document.getElementById(`l1-${i}`).value = 'Switch';
-  document.getElementById(`l2-${i}`).value = String(i + 1);
-  const en = i < 4;
-  document.getElementById(`en-${i}`).checked = en;
-  updateRowStyle(i);
-}
-
 btnToggle.addEventListener('click', () => {
   consoleEl.classList.toggle('visible');
   btnToggle.textContent = consoleEl.classList.contains('visible') ? 'Hide Log' : 'Show Log';
@@ -525,18 +518,19 @@ function setMsg(text, type = '') {
   msgEl.className = type;
 }
 
+const configSection = document.getElementById('config-section');
+
 function setConnected(connected) {
   if (connected) {
     btnConnect.textContent = 'Disconnect';
     btnConnect.classList.add('disconnect');
-    btnRead.disabled = false;
-    btnWrite.disabled = false;
     setStatus('connected', 'Connected');
   } else {
     btnConnect.textContent = 'Connect';
     btnConnect.classList.remove('disconnect');
     btnRead.disabled = true;
     btnWrite.disabled = true;
+    configSection.style.display = 'none';
     setStatus('', 'Disconnected');
   }
 }
@@ -561,8 +555,8 @@ async function connect() {
     readLoop();
 
     setConnected(true);
-    setMsg('');
     log('[connected]');
+    await readFromDevice();
   } catch (e) {
     setMsg('Connection failed: ' + e.message, 'error');
     log('[connect error] ' + e.message);
@@ -644,8 +638,8 @@ function sendCommand(obj, timeoutMs = 5000) {
 // Read from device
 // ---------------------------------------------------------------------------
 
-btnRead.addEventListener('click', async () => {
-  setMsg('Reading…');
+async function readFromDevice() {
+  setMsg('Reading from device…');
   btnRead.disabled = true;
   btnWrite.disabled = true;
   try {
@@ -665,15 +659,19 @@ btnRead.addEventListener('click', async () => {
       document.getElementById(`en-${i}`).checked = !!slots[i].en;
       updateRowStyle(i);
     }
+    configSection.style.display = '';
+    btnRead.disabled = false;
+    btnWrite.disabled = false;
     setMsg('Read complete.', 'ok');
   } catch (e) {
     setMsg('Error: ' + e.message, 'error');
     log('[read error] ' + e.message);
-  } finally {
     btnRead.disabled = false;
     btnWrite.disabled = false;
   }
-});
+}
+
+btnRead.addEventListener('click', readFromDevice);
 
 // ---------------------------------------------------------------------------
 // Write to device
