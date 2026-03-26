@@ -674,8 +674,15 @@ async function connect() {
     readLoopRunning = true;
     readLoop();
 
-    setConnected(true);
     log('[connected]');
+    const ok = await handshake();
+    if (!ok) {
+      await disconnect();
+      setStatus('error', 'Not in config mode');
+      setMsg('Device is not in config mode. Hold the top button while powering on, then reconnect.', 'error');
+      return;
+    }
+    setConnected(true);
     await readFromDevice();
   } catch (e) {
     setMsg('Connection failed: ' + e.message, 'error');
@@ -752,6 +759,24 @@ function sendCommand(obj, timeoutMs = 5000) {
     log('[tx] ' + JSON.stringify(obj));
     writer.write(frame);
   });
+}
+
+// ---------------------------------------------------------------------------
+// Handshake — confirm device is in config mode
+// ---------------------------------------------------------------------------
+
+async function handshake() {
+  setMsg('Connecting…');
+  try {
+    const resp = await sendCommand({ cmd: 'ping' }, 1500);
+    if (resp.status === 'ok') {
+      log('[handshake] mode=' + resp.mode + ' fw=' + resp.fw);
+      return true;
+    }
+  } catch (e) {
+    log('[handshake failed] ' + e.message);
+  }
+  return false;
 }
 
 // ---------------------------------------------------------------------------

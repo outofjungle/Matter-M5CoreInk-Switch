@@ -26,15 +26,21 @@ The web app scans the byte stream: anything between two `0xC0` delimiters is a S
 
 ### Commands (web → device)
 
+**Ping (handshake):**
+```cbor
+{ "cmd": "ping" }
+```
+
 **Read all slots:**
 ```cbor
 { "cmd": "read" }
 ```
 
-**Write slots** (partial update — only slots present are written):
+**Write slots:**
 ```cbor
-{ "cmd": "write", "slots": { "0": { "l1": "Kitchen", "l2": "Light", "en": true }, "3": { "l1": "Bed", "l2": "Fan", "en": false } } }
+{ "cmd": "write", "slots": [ { "l1": "Kitchen", "l2": "Light", "en": true }, ... ] }
 ```
+(Full array of 16 entries required)
 
 **Reboot:**
 ```cbor
@@ -42,6 +48,11 @@ The web app scans the byte stream: anything between two `0xC0` delimiters is a S
 ```
 
 ### Responses (device → web)
+
+**Ping response:**
+```cbor
+{ "status": "ok", "mode": "config", "fw": "1.0.0" }
+```
 
 **Read response:**
 ```cbor
@@ -59,6 +70,49 @@ or
 ```
 
 **After successful write + reboot command:** device calls `esp_restart()`.
+
+### Handshake / Config Mode Detection
+
+After opening the serial port, the webapp sends `ping` before doing anything else. This detects whether the device is in config mode.
+
+**Why this is needed:** In normal (Matter) mode, no UART RX task is running — UART0 is used only by ESP-IDF logging. Any command sent is silently ignored. Without a handshake the webapp would show "Connected" but every command would timeout.
+
+**Timeout:** 1500ms. In config mode the round-trip is <100ms; a timeout means no RX task is active.
+
+**Connection flow — config mode (success):**
+
+```mermaid
+sequenceDiagram
+    participant W as Web App
+    participant D as ESP32 (config mode)
+    W->>D: {cmd:"ping"} [SLIP/CBOR]
+    D->>W: {status:"ok", mode:"config", fw:"1.0.0"} [SLIP/CBOR]
+    Note over W: green dot — proceed to read
+    W->>D: {cmd:"read"} [SLIP/CBOR]
+    D->>W: {status:"ok", slots:[...]} [SLIP/CBOR]
+    Note over W: form displayed — user edits slots
+    W->>D: {cmd:"write", slots:[...]} [SLIP/CBOR]
+    D->>W: {status:"ok"} [SLIP/CBOR]
+    W->>D: {cmd:"reboot"} [SLIP/CBOR]
+    D->>W: {status:"ok"} [SLIP/CBOR]
+    Note over D: esp_restart()
+    Note over W: auto-disconnect — pre-connect view restored
+```
+
+**Connection flow — normal mode (failure):**
+
+```mermaid
+sequenceDiagram
+    participant W as Web App
+    participant D as ESP32 (normal mode)
+    W->>D: {cmd:"ping"} [SLIP/CBOR]
+    Note over D: no RX task running — bytes sit in HW FIFO
+    Note over W: 1500ms timeout
+    W->>W: disconnect()
+    Note over W: red dot — "Device is not in config mode"
+```
+
+**On failure**, the webapp disconnects and shows: *"Device is not in config mode. Hold the top button while powering on, then reconnect."*
 
 ### Validation (firmware side, on write)
 - `l1`: string, max 8 chars, non-empty

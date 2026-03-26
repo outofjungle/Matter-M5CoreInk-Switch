@@ -4,6 +4,7 @@
    Listens on UART0 for CBOR-over-SLIP frames from the web configurator.
 
    Protocol (SLIP-framed CBOR maps):
+     {cmd:"ping"}                      → {status:"ok", mode:"config", fw:"<version>"}
      {cmd:"read"}                      → {status:"ok", slots:[{l1,l2,en}×16]}
      {cmd:"write", slots:[{l1,l2,en}×16]} → {status:"ok"} or {status:"error",msg:"..."}
      {cmd:"reboot"}                    → {status:"ok"} then esp_restart()
@@ -14,6 +15,7 @@
 
 #include <driver/uart.h>
 #include <esp_log.h>
+#include <esp_app_desc.h>
 #include <esp_system.h>
 #include <nvs.h>
 #include <freertos/FreeRTOS.h>
@@ -319,6 +321,20 @@ static void process_frame(const uint8_t *data, size_t len)
     } else if (strcmp(cmd, "write") == 0) {
         if (!slots_found) { send_status("error", "missing slots"); return; }
         handle_write(&slots_val);
+    } else if (strcmp(cmd, "ping") == 0) {
+        const esp_app_desc_t *desc = esp_app_get_description();
+        uint8_t cbor_buf[128];
+        CborEncoder enc, map;
+        cbor_encoder_init(&enc, cbor_buf, sizeof(cbor_buf), 0);
+        cbor_encoder_create_map(&enc, &map, 3);
+        cbor_encode_text_stringz(&map, "status");
+        cbor_encode_text_stringz(&map, "ok");
+        cbor_encode_text_stringz(&map, "mode");
+        cbor_encode_text_stringz(&map, "config");
+        cbor_encode_text_stringz(&map, "fw");
+        cbor_encode_text_stringz(&map, desc->version);
+        cbor_encoder_close_container(&enc, &map);
+        send_response(cbor_buf, cbor_encoder_get_buffer_size(&enc, cbor_buf));
     } else if (strcmp(cmd, "reboot") == 0) {
         send_status("ok", nullptr);
         uart_wait_tx_done(UART_NUM_0, pdMS_TO_TICKS(200));
