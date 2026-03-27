@@ -248,12 +248,12 @@ void app_driver_led_init(void)
         .intr_type    = GPIO_INTR_DISABLE,
     };
     gpio_config(&led_cfg);
-    gpio_set_level(LED_PIN, 0);
+    gpio_set_level(LED_PIN, 1);  // Active LOW: 1 = off
 }
 
 void app_driver_led_set(bool on)
 {
-    gpio_set_level(LED_PIN, on ? 1 : 0);
+    gpio_set_level(LED_PIN, on ? 0 : 1);  // Active LOW
 }
 
 static void led_set(bool on) { app_driver_led_set(on); }

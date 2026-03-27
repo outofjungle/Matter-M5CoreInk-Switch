@@ -181,7 +181,7 @@ static void app_event_cb(const ChipDeviceEvent *event, intptr_t arg)
 
     case chip::DeviceLayer::DeviceEventType::kCommissioningComplete:
         ESP_LOGI(TAG, "Commissioning complete");
-        app_driver_led_blink_start(LED_BLINK_SLOW_MS);
+        app_driver_led_blink_stop();
         app_display_show_button(app_driver_get_selected_button());
         break;
 
