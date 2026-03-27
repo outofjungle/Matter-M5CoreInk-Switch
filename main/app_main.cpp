@@ -34,6 +34,7 @@
 #include "include/CHIPProjectConfig.h"
 #include <esp_app_desc.h>
 #include "app_serial.h"
+#include "app_reset.h"
 
 #include <setup_payload/OnboardingCodesUtil.h>
 #include <qrcode.h>
@@ -331,6 +332,9 @@ static void init_config_mode(void)
 
     app_display_show_config_mode();
     ESP_LOGI(TAG, "CONFIG MODE — serial configurator ready, Matter disabled");
+
+    // Check for factory reset: if EXT is still held, run the armed countdown.
+    app_reset_check_config_boot();
 }
 
 // ---------------------------------------------------------------------------

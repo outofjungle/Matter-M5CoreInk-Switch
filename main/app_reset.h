@@ -5,22 +5,26 @@
 #pragma once
 
 #include <esp_err.h>
-#include <iot_button.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 /**
- * @brief Register factory reset callbacks on the given button handle.
+ * @brief Check whether factory reset should be triggered from the config mode
+ *        boot path and run the FSM if so.
  *
- * Holding the button for FACTORY_RESET_LONG_PRESS_MS (5 s) triggers a
- * factory reset. The green LED flashes rapidly as a countdown indicator.
+ * Call this after config mode init completes. If EXT (GPIO 5) is still held,
+ * the function waits FACTORY_RESET_ARM_DELAY_MS (5 s); if still held, it arms
+ * the reset and blinks the LED for FACTORY_RESET_CANCEL_WINDOW_MS (10 s).
+ * Release at any point to cancel. If held through the full window, factory
+ * reset executes (does not return).
  *
- * @param handle  iot_button handle
- * @return ESP_OK on success
+ * If EXT is already released when called, returns immediately.
+ *
+ * @return ESP_OK (always, unless factory_reset() is called)
  */
-esp_err_t app_reset_button_register(button_handle_t handle);
+esp_err_t app_reset_check_config_boot(void);
 
 #ifdef __cplusplus
 }

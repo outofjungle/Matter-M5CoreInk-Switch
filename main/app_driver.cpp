@@ -6,7 +6,8 @@
 
    UP / DOWN  → navigate enabled buttons; calls display callback; no Matter events
    MID press  → emits InitialPress + ShortRelease on the currently selected button endpoint
-   MID long-hold → factory reset (delegated to app_reset)
+   MID long-hold → fires long_press_mark_cb (no factory reset in normal mode)
+   Factory reset is triggered via chained config mode boot path (see app_reset.cpp)
 */
 
 #include <driver/gpio.h>
@@ -22,7 +23,6 @@
 #include <esp_matter_core.h>
 
 #include "app_priv.h"
-#include "app_reset.h"
 
 static const char *TAG = "app_driver";
 
@@ -442,7 +442,7 @@ esp_err_t app_driver_buttons_init(uint16_t *endpoint_ids, int endpoint_count,
 
         button_config_t btn_cfg = {};
         btn_cfg.type = BUTTON_TYPE_GPIO;
-        btn_cfg.long_press_time  = FACTORY_RESET_LONG_PRESS_MS;
+        btn_cfg.long_press_time  = FACTORY_RESET_ARM_DELAY_MS;
         btn_cfg.short_press_time = 50;
         btn_cfg.gpio_button_config.gpio_num     = k_button_pins[i];
         btn_cfg.gpio_button_config.active_level = 0;  // Active LOW
@@ -464,10 +464,6 @@ esp_err_t app_driver_buttons_init(uint16_t *endpoint_ids, int endpoint_count,
             iot_button_register_cb(s_handles[i], BUTTON_PRESS_UP,   btn_mid_press_up_cb,   &s_ctx[i]);
             iot_button_register_cb(s_handles[i], BUTTON_LONG_PRESS_START,
                                    btn_long_press_mark_cb, &s_ctx[i]);
-            esp_err_t err = app_reset_button_register(s_handles[i]);
-            if (err != ESP_OK) {
-                ESP_LOGW(TAG, "app_reset_button_register failed: %d", err);
-            }
         }
 
         ESP_LOGI(TAG, "Button[%d] (GPIO%d) initialised", i, k_button_pins[i]);

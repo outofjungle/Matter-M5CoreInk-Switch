@@ -1,45 +1,67 @@
 /*
    M5 Multipass - Factory Reset Handler
 
-   Hold BUTTON_MID_PIN for FACTORY_RESET_LONG_PRESS_MS (5 s) to trigger a
-   factory reset. The green LED blinks rapidly as a countdown indicator.
-   Release before the timer fires to cancel.
+   Factory reset is chained through the config mode boot path:
+
+     1. Hold EXT (GPIO 5) at power-on → device enters config mode (normal boot behavior)
+     2. Keep holding for FACTORY_RESET_ARM_DELAY_MS (5 s) → ARMED (LED blinks)
+     3. Keep holding for FACTORY_RESET_CANCEL_WINDOW_MS (10 s) → factory reset
+
+   Release at any point before the cancel window expires to cancel and remain
+   in config mode. Not available during normal runtime.
+
+   FSM (polling-based — button is already held at boot, so iot_button events
+   cannot be used):
+
+     CONFIG_BOOT ──(held 5s)──► ARMED ──(held 10s)──► COMMITTED ──► RESETTING
+          │                       │
+          └──(released)           └──(released)──► back to config mode
 */
 
-#include <atomic>
 #include <driver/gpio.h>
 #include <esp_log.h>
-#include <esp_matter.h>
+#include <esp_system.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
-#include <iot_button.h>
+#include <nvs_flash.h>
 
 #include "app_priv.h"
 #include "app_reset.h"
 
 static const char *TAG = "app_reset";
 
-// Simple two-state machine to handle concurrent press-up vs long-press.
-enum class ResetState : uint8_t { IDLE, ARMED };
-static std::atomic<ResetState> s_state{ResetState::IDLE};
+enum class ResetState : uint8_t { IDLE, ARMED, COMMITTED, RESETTING };
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-static bool button_is_pressed(void)
+static bool ext_is_held(void)
 {
-    // Active-low buttons with internal pull-up: LOW = pressed
-    return gpio_get_level(BUTTON_MID_PIN) == 0;
+    // Active-low button with internal pull-up: LOW = pressed/held
+    return gpio_get_level(BUTTON_EXT_PIN) == 0;
 }
 
-// Blink LED rapidly for the given total duration (ms).
-// Returns true if duration completed, false if reset_state left ARMED early.
-static bool blink_countdown(uint32_t duration_ms, uint32_t period_ms = 100)
+// Poll GPIO for up to duration_ms in poll_ms increments.
+// Returns true if button was held the entire duration, false if released early.
+static bool wait_held(uint32_t duration_ms, uint32_t poll_ms = 100)
+{
+    for (uint32_t elapsed = 0; elapsed < duration_ms; elapsed += poll_ms) {
+        vTaskDelay(pdMS_TO_TICKS(poll_ms));
+        if (!ext_is_held()) {
+            return false;
+        }
+    }
+    return true;
+}
+
+// Blink LED rapidly while polling for release.
+// Returns true if button was held the entire duration, false if released early.
+static bool blink_held(uint32_t duration_ms, uint32_t period_ms = 100)
 {
     uint32_t elapsed = 0;
     while (elapsed < duration_ms) {
-        if (s_state.load() != ResetState::ARMED) {
+        if (!ext_is_held()) {
             return false;
         }
         app_driver_led_set(true);
@@ -52,79 +74,48 @@ static bool blink_countdown(uint32_t duration_ms, uint32_t period_ms = 100)
 }
 
 // ---------------------------------------------------------------------------
-// Button callbacks
-// ---------------------------------------------------------------------------
-
-// Fired by iot_button after the button has been held for long_press_time ms.
-static void long_press_start_cb(void *arg, void *data)
-{
-    // Transition IDLE -> ARMED; bail out if already in progress.
-    ResetState expected = ResetState::IDLE;
-    if (!s_state.compare_exchange_strong(expected, ResetState::ARMED)) {
-        return;
-    }
-
-    ESP_LOGW(TAG, "Factory reset: long press detected — release within 2 s to cancel");
-
-    // 2-second cancellation window with rapid LED blink.
-    if (!blink_countdown(2000, 100)) {
-        ESP_LOGI(TAG, "Factory reset cancelled (button released)");
-        app_driver_led_set(false);
-        return;
-    }
-
-    // Still held after cancellation window — commit reset.
-    if (!button_is_pressed()) {
-        ESP_LOGI(TAG, "Factory reset cancelled (button released after blink)");
-        app_driver_led_set(false);
-        s_state = ResetState::IDLE;
-        return;
-    }
-
-    ESP_LOGW(TAG, "Factory reset confirmed — resetting now");
-    app_driver_led_set(true);
-    vTaskDelay(pdMS_TO_TICKS(500));
-
-    s_state = ResetState::IDLE;
-    esp_matter::factory_reset();
-}
-
-// Fired whenever the button is released.
-static void press_up_cb(void *arg, void *data)
-{
-    ResetState expected = ResetState::ARMED;
-    s_state.compare_exchange_strong(expected, ResetState::IDLE);
-    // The blink_countdown loop will notice the state change and return false.
-}
-
-// ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
-extern "C" esp_err_t app_reset_button_register(button_handle_t handle)
+extern "C" esp_err_t app_reset_check_config_boot(void)
 {
-    if (!handle) {
-        ESP_LOGE(TAG, "Button handle is NULL");
-        return ESP_ERR_INVALID_ARG;
+    // If EXT was already released (user just tapped to enter config mode), do nothing.
+    if (!ext_is_held()) {
+        return ESP_OK;
     }
 
-    esp_err_t err;
+    ESP_LOGI(TAG, "EXT held — hold %d s to arm factory reset",
+             FACTORY_RESET_ARM_DELAY_MS / 1000);
 
-    err = iot_button_register_cb(handle, BUTTON_LONG_PRESS_START,
-                                  long_press_start_cb, NULL);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to register long press callback: %d", err);
-        return err;
+    // CONFIG_BOOT: wait for arm delay.
+    if (!wait_held(FACTORY_RESET_ARM_DELAY_MS)) {
+        ESP_LOGI(TAG, "EXT released — staying in config mode");
+        return ESP_OK;
     }
 
-    err = iot_button_register_cb(handle, BUTTON_PRESS_UP,
-                                  press_up_cb, NULL);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to register press-up callback: %d", err);
-        return err;
+    // ARMED: blink LED for cancel window.
+    ESP_LOGW(TAG, "Factory reset ARMED — release within %d s to cancel",
+             FACTORY_RESET_CANCEL_WINDOW_MS / 1000);
+
+    if (!blink_held(FACTORY_RESET_CANCEL_WINDOW_MS)) {
+        ESP_LOGI(TAG, "Factory reset cancelled — staying in config mode");
+        // Restore solid LED (config mode indicator).
+        app_driver_led_set(true);
+        return ESP_OK;
     }
 
-    ESP_LOGI(TAG, "Factory reset handler registered (hold MID %d ms to reset)",
-             FACTORY_RESET_LONG_PRESS_MS);
-    return ESP_OK;
+    // COMMITTED: button held through full cancel window.
+    ESP_LOGW(TAG, "Factory reset COMMITTED — resetting now");
+    app_driver_led_set(true);
+    vTaskDelay(pdMS_TO_TICKS(500));
+
+    // RESETTING — Matter stack is not running in config mode, so erase NVS
+    // partitions directly (same effect as esp_matter::factory_reset()).
+    ESP_LOGW(TAG, "Erasing NVS partitions...");
+    nvs_flash_erase();
+    nvs_flash_erase_partition("fctry");
+    ESP_LOGW(TAG, "Done — rebooting");
+    esp_restart();
+
+    return ESP_OK;  // unreachable
 }

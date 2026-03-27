@@ -17,6 +17,7 @@
 #define BUTTON_UP_PIN    GPIO_NUM_37   // Rotary encoder: Up direction
 #define BUTTON_DOWN_PIN  GPIO_NUM_39   // Rotary encoder: Down direction
 #define BUTTON_MID_PIN   GPIO_NUM_38   // Rotary encoder: Push (Middle)
+#define BUTTON_EXT_PIN   GPIO_NUM_5    // External button (also CONFIG_MODE_PIN at boot)
 
 // Status LED
 #define LED_PIN          GPIO_NUM_10   // Green LED (G10), active HIGH
@@ -48,8 +49,10 @@ typedef enum {
 // Timing
 // ---------------------------------------------------------------------------
 
-// Long press duration (ms) before factory reset is triggered on MID button
-#define FACTORY_RESET_LONG_PRESS_MS  5000
+// Delay (ms) after config mode init: hold EXT this long to arm factory reset
+#define FACTORY_RESET_ARM_DELAY_MS    5000
+// Armed window (ms): hold EXT through this after ARMED to confirm reset
+#define FACTORY_RESET_CANCEL_WINDOW_MS  10000
 
 // LED blink half-periods (ms) — time LED spends in each on/off state
 #define LED_BLINK_FAST_MS    250   // 2 Hz  — uncommissioned / pairing mode
