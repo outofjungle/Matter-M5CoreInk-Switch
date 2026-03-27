@@ -1,11 +1,11 @@
 /*
-   M5 Multipass - Button Driver & Switch Config
+   M5 Multipass - Button Driver & Button Config
 
-   Manages NVS-backed switch configuration (16 slots, each with line1/line2/enabled)
+   Manages NVS-backed button configuration (16 slots, each with button_name/room_name/enabled)
    and the three physical buttons.
 
-   UP / DOWN  → navigate enabled switches; calls display callback; no Matter events
-   MID press  → emits InitialPress + ShortRelease on the currently selected switch endpoint
+   UP / DOWN  → navigate enabled buttons; calls display callback; no Matter events
+   MID press  → emits InitialPress + ShortRelease on the currently selected button endpoint
    MID long-hold → factory reset (delegated to app_reset)
 */
 
@@ -43,11 +43,11 @@ static void sw_key(char *buf, size_t len, int slot, const char *field)
 }
 
 // ---------------------------------------------------------------------------
-// Switch config state
+// Button config state
 // ---------------------------------------------------------------------------
 
-static switch_config_t s_configs[MAX_SWITCHES];
-static int s_enabled_slots[MAX_SWITCHES];  // slot indices of enabled switches
+static button_slot_t s_configs[MAX_BUTTONS];
+static int s_enabled_slots[MAX_BUTTONS];  // slot indices of enabled buttons
 static int s_enabled_count = 0;
 
 static void write_defaults_to_nvs(void)
@@ -60,9 +60,9 @@ static void write_defaults_to_nvs(void)
 
     char key[16];
     char num[9];
-    for (int i = 0; i < MAX_SWITCHES; i++) {
+    for (int i = 0; i < MAX_BUTTONS; i++) {
         sw_key(key, sizeof(key), i, "l1");
-        nvs_set_str(h, key, "Switch");
+        nvs_set_str(h, key, "Button");
 
         snprintf(num, sizeof(num), "%d", i + 1);
         sw_key(key, sizeof(key), i, "l2");
@@ -74,10 +74,10 @@ static void write_defaults_to_nvs(void)
 
     nvs_commit(h);
     nvs_close(h);
-    ESP_LOGI(TAG, "NVS switch defaults written (slots 0-3 enabled)");
+    ESP_LOGI(TAG, "NVS button defaults written (slots 0-3 enabled)");
 }
 
-esp_err_t app_switch_config_init(void)
+esp_err_t app_button_config_init(void)
 {
     nvs_handle_t h;
     char key[16];
@@ -103,14 +103,14 @@ esp_err_t app_switch_config_init(void)
     }
 
     s_enabled_count = 0;
-    for (int i = 0; i < MAX_SWITCHES; i++) {
+    for (int i = 0; i < MAX_BUTTONS; i++) {
         size_t sz;
         uint8_t en = 0;
 
         sw_key(key, sizeof(key), i, "l1");
         sz = sizeof(s_configs[i].button_name);
         if (nvs_get_str(h, key, s_configs[i].button_name, &sz) != ESP_OK) {
-            strncpy(s_configs[i].button_name, "Switch", sizeof(s_configs[i].button_name));
+            strncpy(s_configs[i].button_name, "Button", sizeof(s_configs[i].button_name));
         }
 
         sw_key(key, sizeof(key), i, "l2");
@@ -133,9 +133,9 @@ esp_err_t app_switch_config_init(void)
     nvs_close(h);
 
     // Sanitize in-memory values (NVS write may have stored bad data via serial)
-    for (int i = 0; i < MAX_SWITCHES; i++) {
+    for (int i = 0; i < MAX_BUTTONS; i++) {
         if (s_configs[i].button_name[0] == '\0') {
-            strncpy(s_configs[i].button_name, "Switch", sizeof(s_configs[i].button_name));
+            strncpy(s_configs[i].button_name, "Button", sizeof(s_configs[i].button_name));
         }
         if (s_configs[i].room_name[0] == '\0') {
             snprintf(s_configs[i].room_name, sizeof(s_configs[i].room_name), "%d", i + 1);
@@ -144,7 +144,7 @@ esp_err_t app_switch_config_init(void)
 
     // Force-enable slot 0 if nothing is enabled (prevent blank device)
     if (s_enabled_count == 0) {
-        ESP_LOGW(TAG, "No enabled switches — force-enabling slot 0");
+        ESP_LOGW(TAG, "No enabled buttons — force-enabling slot 0");
         s_configs[0].enabled = true;
         s_enabled_slots[0] = 0;
         s_enabled_count = 1;
@@ -159,13 +159,13 @@ esp_err_t app_switch_config_init(void)
         }
     }
 
-    ESP_LOGI(TAG, "Loaded %d enabled switches (of %d)", s_enabled_count, MAX_SWITCHES);
+    ESP_LOGI(TAG, "Loaded %d enabled buttons (of %d)", s_enabled_count, MAX_BUTTONS);
     return ESP_OK;
 }
 
-esp_err_t app_switch_nvs_write_slot(int slot, const char *l1, const char *l2, bool en)
+esp_err_t app_button_nvs_write_slot(int slot, const char *l1, const char *l2, bool en)
 {
-    if (slot < 0 || slot >= MAX_SWITCHES) return ESP_ERR_INVALID_ARG;
+    if (slot < 0 || slot >= MAX_BUTTONS) return ESP_ERR_INVALID_ARG;
     nvs_handle_t h;
     if (nvs_open(NVS_NS, NVS_READWRITE, &h) != ESP_OK) return ESP_FAIL;
     char key[16];
@@ -180,36 +180,36 @@ esp_err_t app_switch_nvs_write_slot(int slot, const char *l1, const char *l2, bo
     return ESP_OK;
 }
 
-int app_switch_get_enabled_count(void)   { return s_enabled_count; }
+int app_button_get_enabled_count(void)   { return s_enabled_count; }
 
-const switch_config_t *app_switch_get_config(int slot)
+const button_slot_t *app_button_get_config(int slot)
 {
-    if (slot < 0 || slot >= MAX_SWITCHES) return nullptr;
+    if (slot < 0 || slot >= MAX_BUTTONS) return nullptr;
     return &s_configs[slot];
 }
 
-int app_switch_get_enabled_slot(int n)
+int app_button_get_enabled_slot(int n)
 {
     if (n < 0 || n >= s_enabled_count) return -1;
     return s_enabled_slots[n];
 }
 
 // ---------------------------------------------------------------------------
-// Switch selection state
+// Button selection state
 // ---------------------------------------------------------------------------
 
-static uint16_t s_endpoint_ids[MAX_SWITCHES] = {0};
+static uint16_t s_endpoint_ids[MAX_BUTTONS] = {0};
 static int s_endpoint_count = 0;
 
-// 0-indexed into the enabled-switch list
-static int s_selected_switch = 0;
+// 0-indexed into the enabled-button list
+static int s_selected_button = 0;
 
 // Display callback
 static void (*s_display_cb)(int) = nullptr;
 
-int app_driver_get_selected_switch(void) { return s_selected_switch; }
+int app_driver_get_selected_button(void) { return s_selected_button; }
 
-static void save_selected_switch(int idx)
+static void save_selected_button(int idx)
 {
     nvs_handle_t h;
     if (nvs_open(NVS_NS, NVS_READWRITE, &h) != ESP_OK) return;
@@ -218,7 +218,7 @@ static void save_selected_switch(int idx)
     nvs_close(h);
 }
 
-static int load_selected_switch(void)
+static int load_selected_button(void)
 {
     nvs_handle_t h;
     uint8_t val = 0;
@@ -231,7 +231,7 @@ static int load_selected_switch(void)
 
 static uint16_t selected_ep_id(void)
 {
-    return s_endpoint_ids[s_selected_switch];
+    return s_endpoint_ids[s_selected_button];
 }
 
 // ---------------------------------------------------------------------------
@@ -316,11 +316,11 @@ static button_handle_t s_handles[3];
 static void btn_up_press_cb(void *arg, void *data)
 {
     led_set(true);
-    s_selected_switch = (s_selected_switch + s_endpoint_count - 1) % s_endpoint_count;
-    ESP_LOGI(TAG, "Nav UP → enabled[%d] (slot %d)", s_selected_switch,
-             app_switch_get_enabled_slot(s_selected_switch));
-    save_selected_switch(s_selected_switch);
-    if (s_display_cb) s_display_cb(s_selected_switch);
+    s_selected_button = (s_selected_button + s_endpoint_count - 1) % s_endpoint_count;
+    ESP_LOGI(TAG, "Nav UP → enabled[%d] (slot %d)", s_selected_button,
+             app_button_get_enabled_slot(s_selected_button));
+    save_selected_button(s_selected_button);
+    if (s_display_cb) s_display_cb(s_selected_button);
 }
 
 static void btn_up_release_cb(void *arg, void *data)
@@ -333,11 +333,11 @@ static void btn_up_release_cb(void *arg, void *data)
 static void btn_down_press_cb(void *arg, void *data)
 {
     led_set(true);
-    s_selected_switch = (s_selected_switch + 1) % s_endpoint_count;
-    ESP_LOGI(TAG, "Nav DOWN → enabled[%d] (slot %d)", s_selected_switch,
-             app_switch_get_enabled_slot(s_selected_switch));
-    save_selected_switch(s_selected_switch);
-    if (s_display_cb) s_display_cb(s_selected_switch);
+    s_selected_button = (s_selected_button + 1) % s_endpoint_count;
+    ESP_LOGI(TAG, "Nav DOWN → enabled[%d] (slot %d)", s_selected_button,
+             app_button_get_enabled_slot(s_selected_button));
+    save_selected_button(s_selected_button);
+    if (s_display_cb) s_display_cb(s_selected_button);
 }
 
 static void btn_down_release_cb(void *arg, void *data)
@@ -345,7 +345,7 @@ static void btn_down_release_cb(void *arg, void *data)
     led_set(false);
 }
 
-// --- Mid button: fire Matter event on selected switch ---
+// --- Mid button: fire Matter event on selected button ---
 
 static void btn_mid_press_down_cb(void *arg, void *data)
 {
@@ -353,9 +353,9 @@ static void btn_mid_press_down_cb(void *arg, void *data)
     ctx->long_press_active = false;
 
     uint16_t ep = selected_ep_id();
-    int slot = app_switch_get_enabled_slot(s_selected_switch);
+    int slot = app_button_get_enabled_slot(s_selected_button);
     ESP_LOGD(TAG, "Mid press down → enabled[%d] slot %d (ep %d)",
-             s_selected_switch, slot, ep);
+             s_selected_button, slot, ep);
 
     led_set(true);
 
@@ -370,7 +370,7 @@ static void btn_mid_press_down_cb(void *arg, void *data)
         chip::app::LogEvent(event_data, ep, event_number);
     }
 
-    ESP_LOGI(TAG, "Switch slot %d InitialPress sent", slot);
+    ESP_LOGI(TAG, "Button slot %d InitialPress sent", slot);
 }
 
 static void btn_mid_press_up_cb(void *arg, void *data)
@@ -385,9 +385,9 @@ static void btn_mid_press_up_cb(void *arg, void *data)
     }
 
     uint16_t ep = selected_ep_id();
-    int slot = app_switch_get_enabled_slot(s_selected_switch);
+    int slot = app_button_get_enabled_slot(s_selected_button);
     ESP_LOGD(TAG, "Mid press up → enabled[%d] slot %d (ep %d)",
-             s_selected_switch, slot, ep);
+             s_selected_button, slot, ep);
 
     {
         esp_matter::lock::ScopedChipStackLock chip_lock(portMAX_DELAY);
@@ -400,7 +400,7 @@ static void btn_mid_press_up_cb(void *arg, void *data)
         chip::app::LogEvent(event_data, ep, event_number);
     }
 
-    ESP_LOGI(TAG, "Switch slot %d ShortRelease sent", slot);
+    ESP_LOGI(TAG, "Button slot %d ShortRelease sent", slot);
 }
 
 static void btn_long_press_mark_cb(void *arg, void *data)
@@ -420,18 +420,18 @@ static const gpio_num_t k_button_pins[3] = {
 };
 
 esp_err_t app_driver_buttons_init(uint16_t *endpoint_ids, int endpoint_count,
-                                   void (*on_switch_selected)(int))
+                                   void (*on_button_selected)(int))
 {
     // Store endpoint IDs, count, and display callback
-    for (int i = 0; i < endpoint_count && i < MAX_SWITCHES; i++) {
+    for (int i = 0; i < endpoint_count && i < MAX_BUTTONS; i++) {
         s_endpoint_ids[i] = endpoint_ids[i];
     }
     s_endpoint_count = endpoint_count;
-    s_display_cb = on_switch_selected;
-    s_selected_switch = load_selected_switch();
+    s_display_cb = on_button_selected;
+    s_selected_button = load_selected_button();
 
     ESP_LOGI(TAG, "Starting on enabled[%d] (slot %d)",
-             s_selected_switch, app_switch_get_enabled_slot(s_selected_switch));
+             s_selected_button, app_button_get_enabled_slot(s_selected_button));
 
     // Configure LED GPIO
     app_driver_led_init();

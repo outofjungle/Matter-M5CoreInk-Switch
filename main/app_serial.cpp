@@ -137,12 +137,12 @@ static void handle_read(void)
     cbor_encode_text_stringz(&map, "status");
     cbor_encode_text_stringz(&map, "ok");
     cbor_encode_text_stringz(&map, "slots");
-    cbor_encoder_create_array(&map, &arr, MAX_SWITCHES);
-    for (int i = 0; i < MAX_SWITCHES; i++) {
-        const switch_config_t *cfg = app_switch_get_config(i);
+    cbor_encoder_create_array(&map, &arr, MAX_BUTTONS);
+    for (int i = 0; i < MAX_BUTTONS; i++) {
+        const button_slot_t *cfg = app_button_get_config(i);
         cbor_encoder_create_map(&arr, &slot_enc, 3);
         cbor_encode_text_stringz(&slot_enc, "l1");
-        cbor_encode_text_stringz(&slot_enc, cfg ? cfg->button_name : "Switch");
+        cbor_encode_text_stringz(&slot_enc, cfg ? cfg->button_name : "Button");
         cbor_encode_text_stringz(&slot_enc, "l2");
         cbor_encode_text_stringz(&slot_enc, cfg ? cfg->room_name : "?");
         cbor_encode_text_stringz(&slot_enc, "en");
@@ -174,13 +174,13 @@ static void handle_write(CborValue *slots_val)
         return;
     }
 
-    static incoming_slot_t incoming[MAX_SWITCHES];
+    static incoming_slot_t incoming[MAX_BUTTONS];
     memset(incoming, 0, sizeof(incoming));
 
     CborValue arr;
     cbor_value_enter_container(slots_val, &arr);
 
-    for (int slot = 0; slot < MAX_SWITCHES && !cbor_value_at_end(&arr); slot++) {
+    for (int slot = 0; slot < MAX_BUTTONS && !cbor_value_at_end(&arr); slot++) {
         if (!cbor_value_is_map(&arr)) {
             cbor_value_advance(&arr);
             continue;
@@ -225,7 +225,7 @@ static void handle_write(CborValue *slots_val)
 
     // Validate all slots
     int enabled_count = 0;
-    for (int i = 0; i < MAX_SWITCHES; i++) {
+    for (int i = 0; i < MAX_BUTTONS; i++) {
         if (!incoming[i].valid) {
             char msg[32];
             snprintf(msg, sizeof(msg), "slot %d missing fields", i);
@@ -252,8 +252,8 @@ static void handle_write(CborValue *slots_val)
     }
 
     // Write all slots to NVS
-    for (int i = 0; i < MAX_SWITCHES; i++) {
-        esp_err_t err = app_switch_nvs_write_slot(i,
+    for (int i = 0; i < MAX_BUTTONS; i++) {
+        esp_err_t err = app_button_nvs_write_slot(i,
                             incoming[i].l1, incoming[i].l2, incoming[i].en);
         if (err != ESP_OK) {
             send_status("error", "NVS write failed");

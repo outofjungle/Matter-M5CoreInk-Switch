@@ -1,9 +1,9 @@
-# Web Serial + CBOR switch configurator
+# Web Serial + CBOR button configurator
 
 **Beads issue**: Matter-M5CoreInk-Switch-kc5
 
 ## Context
-The 16-switch NVS config (line1, line2, enabled) currently has no user-facing way to be changed. We need a browser-based configuration tool that connects via serial to read/write the switch config, then reboots the device. The ESP32-PICO-D4 uses a CP2104/CH9102F USB-serial bridge (no native USB), so we use the **Web Serial API** (not WebUSB). The serial protocol uses **CBOR** (TinyCBOR already available as `espressif__cbor`) with SLIP framing to distinguish binary commands from text log lines.
+The 16-button NVS config (button_name, room_name, enabled) currently has no user-facing way to be changed. We need a browser-based configuration tool that connects via serial to read/write the button config, then reboots the device. The ESP32-PICO-D4 uses a CP2104/CH9102F USB-serial bridge (no native USB), so we use the **Web Serial API** (not WebUSB). The serial protocol uses **CBOR** (TinyCBOR already available as `espressif__cbor`) with SLIP framing to distinguish binary commands from text log lines.
 
 ## Architecture
 
@@ -56,7 +56,7 @@ The web app scans the byte stream: anything between two `0xC0` delimiters is a S
 
 **Read response:**
 ```cbor
-{ "status": "ok", "slots": [ { "l1": "Switch", "l2": "1", "en": true }, ... ] }
+{ "status": "ok", "slots": [ { "l1": "Button", "l2": "1", "en": true }, ... ] }
 ```
 (Array of 16 entries, index = slot number)
 
@@ -122,7 +122,7 @@ sequenceDiagram
 - At least 1 slot must remain enabled (prevent bricking the UI)
 
 ### Validation (firmware side, on boot/read from NVS)
-- If button name exceeds 8 chars, truncate; if empty, default to `"Switch"`
+- If button name exceeds 8 chars, truncate; if empty, default to `"Button"`
 - If room name exceeds 16 chars, truncate; if empty, default to slot number
 - If `en` is not 0 or 1, default to 0
 - If no slots are enabled, force slot 0 enabled
@@ -135,7 +135,7 @@ sequenceDiagram
 **`main/app_serial.cpp`** — UART command handler
 - Registers a FreeRTOS task that reads UART0
 - SLIP frame detection → CBOR decode → dispatch command → CBOR encode response → SLIP frame → UART write
-- Uses existing `app_switch_config_init()` / `app_switch_get_config()` for reads
+- Uses existing `app_button_config_init()` / `app_button_get_config()` for reads
 - Writes directly to NVS namespace `"app_state"` using same key scheme as `app_driver.cpp`
 - Calls `esp_restart()` on reboot command
 
@@ -145,7 +145,7 @@ sequenceDiagram
 **`web/index.html`** — self-contained web configurator
 - Web Serial API connection (115200 baud)
 - SLIP framing + CBOR encode/decode (inline minimal JS library)
-- UI: table of 16 switch slots, each with button name/room name text inputs + enabled checkbox
+- UI: table of 16 button slots, each with button name/room name text inputs + enabled checkbox
 - "Read from device" button → sends read command, populates form
 - "Write to device" button → validates, sends write + reboot commands
 - Status indicator (connected/disconnected)
@@ -160,9 +160,9 @@ sequenceDiagram
 
 ## Boot-time NVS validation (app_driver.cpp)
 
-Add to `app_switch_config_init()`:
+Add to `app_button_config_init()`:
 1. After loading all 16 configs, verify each:
-   - If `button_name` is empty, set to `"Switch"`; `sizeof(button_name)` = 9 (max 8 chars)
+   - If `button_name` is empty, set to `"Button"`; `sizeof(button_name)` = 9 (max 8 chars)
    - If `room_name` is empty, set to slot number as string; `sizeof(room_name)` = 17 (max 16 chars)
 2. If `s_enabled_count == 0`, force `s_configs[0].enabled = true` and write back to NVS
 3. After loading `sel_sw`, clamp: `if (val >= s_enabled_count) val = 0`
@@ -173,14 +173,14 @@ Add to `app_switch_config_init()`:
 ┌─────────────────────────────────────────┐
 │  M5 Multipass Configurator    [Connect] │
 ├─────────────────────────────────────────┤
-│  #  │ Line 1    │ Line 2    │ Enabled   │
-│  1  │ [Switch ] │ [1      ] │ [✓]       │
-│  2  │ [Switch ] │ [2      ] │ [✓]       │
-│  3  │ [Switch ] │ [3      ] │ [✓]       │
-│  4  │ [Switch ] │ [4      ] │ [✓]       │
-│  5  │ [Switch ] │ [5      ] │ [ ]       │
-│ ... │           │           │           │
-│ 16  │ [Switch ] │ [16     ] │ [ ]       │
+│  #  │ Button Name │ Room Name │ Enabled │
+│  1  │ [Button   ] │ [1      ] │ [✓]     │
+│  2  │ [Button   ] │ [2      ] │ [✓]     │
+│  3  │ [Button   ] │ [3      ] │ [✓]     │
+│  4  │ [Button   ] │ [4      ] │ [✓]     │
+│  5  │ [Button   ] │ [5      ] │ [ ]     │
+│ ... │             │           │         │
+│ 16  │ [Button   ] │ [16     ] │ [ ]     │
 ├─────────────────────────────────────────┤
 │  [Read from Device]  [Write to Device]  │
 │  Status: Connected                      │
@@ -191,6 +191,6 @@ Add to `app_switch_config_init()`:
 1. Build firmware, flash, connect via `make monitor` — device boots normally with log output
 2. Open `web/index.html` in Chrome, click Connect, pick the serial port
 3. Click "Read from Device" — table populates with current NVS config
-4. Change slot 5 to enabled, set line1="Garage", line2="Door"
-5. Click "Write to Device" — device reboots, now shows 5 switches in navigation
-6. Test edge cases: empty strings, 8+ char strings, disable all (should reject)
+4. Change slot 5 to enabled, set button_name="Garage", room_name="Door"
+5. Click "Write to Device" — device reboots, now shows 5 buttons in navigation
+6. Test edge cases: empty strings, 8+ char button name, 16+ char room name, disable all (should reject)

@@ -1,13 +1,13 @@
 /*
    M5 Multipass - Main Application
 
-   Creates a Matter device with up to MAX_SWITCHES (16) Generic Switch endpoints.
-   Which switches are active is controlled by NVS (line1, line2, enabled per slot).
-   UP / DOWN buttons navigate enabled switches shown on the e-ink display.
-   MID button fires InitialPress + ShortRelease on the currently selected switch.
+   Creates a Matter device with up to MAX_BUTTONS (16) Generic Switch endpoints.
+   Which buttons are active is controlled by NVS (button_name, room_name, enabled per slot).
+   UP / DOWN buttons navigate enabled buttons shown on the e-ink display.
+   MID button fires InitialPress + ShortRelease on the currently selected button.
 
    Display shows the commissioning QR code until commissioned,
-   then shows line1/line2 of the selected switch from NVS.
+   then shows button_name/room_name of the selected button from NVS.
 
    Hardware: M5Stack Core Ink (ESP32-PICO-D4), WiFi-only Matter transport.
 */
@@ -52,8 +52,8 @@ using namespace chip::app::Clusters;
 
 constexpr auto k_timeout_seconds = 300;
 
-// Endpoint IDs for enabled switches, built dynamically at boot
-static uint16_t s_endpoint_ids[MAX_SWITCHES] = {0};
+// Endpoint IDs for enabled buttons, built dynamically at boot
+static uint16_t s_endpoint_ids[MAX_BUTTONS] = {0};
 static int s_ep_count = 0;
 
 // ---------------------------------------------------------------------------
@@ -106,17 +106,17 @@ static void render_qr_on_display(esp_qrcode_handle_t qrcode)
 }
 
 // ---------------------------------------------------------------------------
-// E-ink switch selector renderer
-// Draws line1 (small) and line2 (large) from NVS config, centered.
+// E-ink button selector renderer
+// Draws room_name (small) and button_name (large) from NVS config, centered.
 // Called post-commissioning with a 0-based enabled-list index.
 // ---------------------------------------------------------------------------
 
-void app_display_show_switch(int enabled_index)
+void app_display_show_button(int enabled_index)
 {
     constexpr int kDisplaySize = 200;
 
-    int slot = app_switch_get_enabled_slot(enabled_index);
-    const switch_config_t *cfg = app_switch_get_config(slot);
+    int slot = app_button_get_enabled_slot(enabled_index);
+    const button_slot_t *cfg = app_button_get_config(slot);
     if (!cfg) {
         ESP_LOGW("display", "No config for enabled_index=%d", enabled_index);
         return;
@@ -128,13 +128,13 @@ void app_display_show_switch(int enabled_index)
     display.setTextDatum(textdatum_t::middle_center);
     display.setTextColor(TFT_BLACK);
 
-    // room_name: smaller font, upper half
-    display.setFont(&fonts::FreeSans12pt7b);
-    display.drawString(cfg->room_name, kDisplaySize / 2, kDisplaySize / 2 - 30);
-
-    // button_name: large font, lower half
+    // button_name: large font, upper half
     display.setFont(&fonts::FreeSansBold24pt7b);
-    display.drawString(cfg->button_name, kDisplaySize / 2, kDisplaySize / 2 + 20);
+    display.drawString(cfg->button_name, kDisplaySize / 2, kDisplaySize / 2 - 30);
+
+    // room_name: smaller font, lower half
+    display.setFont(&fonts::FreeSans12pt7b);
+    display.drawString(cfg->room_name, kDisplaySize / 2, kDisplaySize / 2 + 20);
 
     display.endWrite();
     display.waitDisplay();
@@ -154,11 +154,11 @@ void app_display_show_config_mode(void)
     display.setTextDatum(textdatum_t::middle_center);
     display.setTextColor(TFT_BLACK);
 
-    display.setFont(&fonts::FreeSans12pt7b);
+    display.setFont(&fonts::FreeSansBold24pt7b);
     display.drawString("Config", kDisplaySize / 2, kDisplaySize / 2 - 30);
 
     display.setFont(&fonts::FreeSansBold24pt7b);
-    display.drawString("Mode", kDisplaySize / 2, kDisplaySize / 2 + 20);
+    display.drawString("Mode", kDisplaySize / 2, kDisplaySize / 2 + 30);
 
     display.setFont(&fonts::FreeSans9pt7b);
     display.drawString("Serial ready", kDisplaySize / 2, kDisplaySize - 18);
@@ -182,7 +182,7 @@ static void app_event_cb(const ChipDeviceEvent *event, intptr_t arg)
     case chip::DeviceLayer::DeviceEventType::kCommissioningComplete:
         ESP_LOGI(TAG, "Commissioning complete");
         app_driver_led_blink_start(LED_BLINK_SLOW_MS);
-        app_display_show_switch(app_driver_get_selected_switch());
+        app_display_show_button(app_driver_get_selected_button());
         break;
 
     case chip::DeviceLayer::DeviceEventType::kFailSafeTimerExpired:
@@ -316,9 +316,9 @@ static void write_fixed_label(uint16_t endpoint_id, const char *label, const cha
 
 static void init_config_mode(void)
 {
-    esp_err_t err = app_switch_config_init();
+    esp_err_t err = app_button_config_init();
     if (err != ESP_OK) {
-        ESP_LOGW(TAG, "Switch config init failed in CONFIG mode: %d", err);
+        ESP_LOGW(TAG, "Button config init failed in CONFIG mode: %d", err);
     }
 
     app_driver_led_init();
@@ -355,18 +355,18 @@ static void init_normal_mode(void)
                          ESP_LOGE(TAG, "Failed to create Matter node"));
 
     // ----------------------------------------------------------------
-    // Load switch config from NVS (must be after nvs_flash_init)
+    // Load button config from NVS (must be after nvs_flash_init)
     // ----------------------------------------------------------------
-    err = app_switch_config_init();
+    err = app_button_config_init();
     ABORT_APP_ON_FAILURE(err == ESP_OK,
-                         ESP_LOGE(TAG, "Failed to init switch config: %d", err));
+                         ESP_LOGE(TAG, "Failed to init button config: %d", err));
 
     // ----------------------------------------------------------------
     // Create Generic Switch endpoints for enabled slots only
     // ----------------------------------------------------------------
     s_ep_count = 0;
-    for (int slot = 0; slot < MAX_SWITCHES; slot++) {
-        const switch_config_t *cfg = app_switch_get_config(slot);
+    for (int slot = 0; slot < MAX_BUTTONS; slot++) {
+        const button_slot_t *cfg = app_button_get_config(slot);
         if (!cfg || !cfg->enabled) continue;
 
         generic_switch::config_t sw_cfg = {};
@@ -379,13 +379,13 @@ static void init_normal_mode(void)
         endpoint_t *ep = generic_switch::create(node, &sw_cfg,
                                                  ENDPOINT_FLAG_NONE, nullptr);
         ABORT_APP_ON_FAILURE(ep != nullptr,
-                             ESP_LOGE(TAG, "Failed to create switch endpoint slot=%d", slot));
+                             ESP_LOGE(TAG, "Failed to create button endpoint slot=%d", slot));
 
         s_endpoint_ids[s_ep_count] = endpoint::get_id(ep);
         ESP_LOGI(TAG, "Slot %d '%s %s' → endpoint %d",
                  slot, cfg->button_name, cfg->room_name, s_endpoint_ids[s_ep_count]);
 
-        // Fixed Label cluster — label value is "line1 line2" (e.g. "Switch 1")
+        // Fixed Label cluster — label value is "button_name room_name" (e.g. "Button 1")
         cluster::fixed_label::config_t fl_cfg = {};
         cluster_t *fl = cluster::fixed_label::create(ep, &fl_cfg, CLUSTER_FLAG_SERVER);
         ABORT_APP_ON_FAILURE(fl != nullptr,
@@ -404,7 +404,7 @@ static void init_normal_mode(void)
     // ----------------------------------------------------------------
     // Initialise buttons
     // ----------------------------------------------------------------
-    err = app_driver_buttons_init(s_endpoint_ids, s_ep_count, app_display_show_switch);
+    err = app_driver_buttons_init(s_endpoint_ids, s_ep_count, app_display_show_button);
     ABORT_APP_ON_FAILURE(err == ESP_OK,
                          ESP_LOGE(TAG, "Failed to init buttons: %d", err));
 
@@ -428,8 +428,8 @@ static void init_normal_mode(void)
             chip::Server::GetInstance().GetFabricTable().FabricCount() > 0;
 
         if (already_commissioned) {
-            ESP_LOGI(TAG, "Already commissioned — showing switch selector");
-            app_display_show_switch(app_driver_get_selected_switch());
+            ESP_LOGI(TAG, "Already commissioned — showing button selector");
+            app_display_show_button(app_driver_get_selected_button());
         } else {
             // Print QR payload to serial and render on e-ink
             char qr_buf[128];

@@ -355,7 +355,7 @@
 </div>
 
 <h1>M5 Multipass Configurator</h1>
-<p class="subtitle">Configure switch labels via USB serial &mdash; Chrome / Edge only</p>
+<p class="subtitle">Configure button labels via USB serial &mdash; Chrome / Edge only</p>
 
 <div class="card">
   <div class="card-header">
@@ -605,7 +605,7 @@ for (let i = 0; i < MAX_SLOTS; i++) {
   tr.id = `slot-${i}`;
   tr.innerHTML = `
     <td>${i + 1}</td>
-    <td><input type="text" id="l1-${i}" maxlength="8" placeholder="Switch"></td>
+    <td><input type="text" id="l1-${i}" maxlength="8" placeholder="Button"></td>
     <td><input type="text" id="l2-${i}" maxlength="16" placeholder="${i + 1}"></td>
     <td><input type="checkbox" id="en-${i}"></td>
   `;

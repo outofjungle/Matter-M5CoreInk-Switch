@@ -13,7 +13,7 @@ extern "C" {
 
 /**
  * @brief Install UART driver on UART0 and start the serial command handler task.
- *        Must be called after nvs_flash_init() and app_switch_config_init().
+ *        Must be called after nvs_flash_init() and app_button_config_init().
  */
 esp_err_t app_serial_init(void);
 

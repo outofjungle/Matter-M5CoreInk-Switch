@@ -38,11 +38,11 @@ typedef enum {
 } device_mode_t;
 
 // ---------------------------------------------------------------------------
-// Switch Configuration
+// Button Configuration
 // ---------------------------------------------------------------------------
 
-// Total configurable switch slots (statically defined; subset are enabled via NVS)
-#define MAX_SWITCHES     16
+// Total configurable button slots (statically defined; subset are enabled via NVS)
+#define MAX_BUTTONS      16
 
 // ---------------------------------------------------------------------------
 // Timing
@@ -56,18 +56,18 @@ typedef enum {
 #define LED_BLINK_SLOW_MS   1000   // 0.5 Hz — commissioned
 
 // ---------------------------------------------------------------------------
-// Switch config struct
-// Populated from NVS at boot. One entry per slot (0..MAX_SWITCHES-1).
+// Button slot config struct
+// Populated from NVS at boot. One entry per slot (0..MAX_BUTTONS-1).
 // ---------------------------------------------------------------------------
 
-struct switch_config_t {
+struct button_slot_t {
     char button_name[9];   // button label, upper display (max 8 chars + null)
     char room_name[17];    // room label, lower display (max 16 chars + null)
     bool enabled;          // if false, no Matter endpoint is created for this slot
 };
 
 // ---------------------------------------------------------------------------
-// Switch config API (implemented in app_driver.cpp)
+// Button config API (implemented in app_driver.cpp)
 // ---------------------------------------------------------------------------
 
 #ifdef __cplusplus
@@ -75,44 +75,44 @@ extern "C" {
 #endif
 
 /**
- * @brief Load switch configs from NVS; write defaults on first boot.
+ * @brief Load button configs from NVS; write defaults on first boot.
  *        Must be called after nvs_flash_init() and before endpoint creation.
  */
-esp_err_t app_switch_config_init(void);
+esp_err_t app_button_config_init(void);
 
 /**
  * @brief Number of slots with enabled=true.
  */
-int app_switch_get_enabled_count(void);
+int app_button_get_enabled_count(void);
 
 /**
- * @brief Config for a given slot index (0..MAX_SWITCHES-1).
+ * @brief Config for a given slot index (0..MAX_BUTTONS-1).
  *        Returns nullptr if idx is out of range.
  */
-const switch_config_t *app_switch_get_config(int slot);
+const button_slot_t *app_button_get_config(int slot);
 
 /**
- * @brief Slot index of the nth enabled switch (0-based n).
+ * @brief Slot index of the nth enabled button (0-based n).
  *        Returns -1 if n >= enabled count.
  */
-int app_switch_get_enabled_slot(int n);
+int app_button_get_enabled_slot(int n);
 
 /**
- * @brief Current 0-based index into the enabled-switch list.
+ * @brief Current 0-based index into the enabled-button list.
  *        Useful for the boot display when already commissioned.
  */
-int app_driver_get_selected_switch(void);
+int app_driver_get_selected_button(void);
 
 /**
  * @brief Write one slot's config to NVS.
  *        Does not update in-memory state — caller should esp_restart() after.
  *
- * @param slot  0..MAX_SWITCHES-1
+ * @param slot  0..MAX_BUTTONS-1
  * @param l1    Button name text (max 8 chars, non-empty)
  * @param l2    Room name text (max 16 chars, non-empty)
  * @param en    Enabled flag
  */
-esp_err_t app_switch_nvs_write_slot(int slot, const char *l1, const char *l2, bool en);
+esp_err_t app_button_nvs_write_slot(int slot, const char *l1, const char *l2, bool en);
 
 // ---------------------------------------------------------------------------
 // Driver API
@@ -123,26 +123,26 @@ typedef void *app_driver_handle_t;
 /**
  * @brief Initialize all three physical buttons.
  *
- * Up/Down navigate through enabled switches; Mid fires Matter events on the
- * currently selected one. on_switch_selected is called with the 0-based
+ * Up/Down navigate through enabled buttons; Mid fires Matter events on the
+ * currently selected one. on_button_selected is called with the 0-based
  * enabled-list index whenever the selection changes.
  *
- * @param endpoint_ids    Endpoint IDs for enabled switches (length = endpoint_count).
- * @param endpoint_count  Number of enabled switches.
- * @param on_switch_selected Callback invoked with enabled-list index on navigation.
+ * @param endpoint_ids    Endpoint IDs for enabled buttons (length = endpoint_count).
+ * @param endpoint_count  Number of enabled buttons.
+ * @param on_button_selected Callback invoked with enabled-list index on navigation.
  * @return ESP_OK on success
  */
 esp_err_t app_driver_buttons_init(uint16_t *endpoint_ids, int endpoint_count,
-                                   void (*on_switch_selected)(int));
+                                   void (*on_button_selected)(int));
 
 /**
- * @brief Render the selected switch on the e-ink display.
+ * @brief Render the selected button on the e-ink display.
  *        Implemented in app_main.cpp; called by app_driver on Up/Down press
  *        and by app_main on commissioning events.
  *
- * @param enabled_index  0-based index into the enabled-switch list.
+ * @param enabled_index  0-based index into the enabled-button list.
  */
-void app_display_show_switch(int enabled_index);
+void app_display_show_button(int enabled_index);
 
 /**
  * @brief Render the configuration mode screen on the e-ink display.
