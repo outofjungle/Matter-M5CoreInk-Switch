@@ -115,6 +115,10 @@ static void render_qr_on_display(esp_qrcode_handle_t qrcode)
 void app_display_show_button(int enabled_index)
 {
     constexpr int kDisplaySize = 200;
+    constexpr int kNavWidth    = 20;                       // right nav column width
+    constexpr int kNavCX       = kDisplaySize - kNavWidth / 2;  // = 190
+    constexpr int kPanelWidth  = kDisplaySize - kNavWidth; // = 180
+    constexpr int kPanelCX     = kPanelWidth / 2;          // = 90
 
     int slot = app_button_get_enabled_slot(enabled_index);
     const button_slot_t *cfg = app_button_get_config(slot);
@@ -125,6 +129,8 @@ void app_display_show_button(int enabled_index)
 
     display.startWrite();
     display.fillScreen(TFT_WHITE);
+
+    // ---- left selector panel ----
 
     // button number badge: black filled circle with white number, top-left corner
     char btn_num[12];
@@ -137,26 +143,39 @@ void app_display_show_button(int enabled_index)
 
     display.setTextColor(TFT_BLACK);
 
-    // button_name: large font, upper half
-    display.setFont(&fonts::FreeSansBold24pt7b);
-    display.drawString(cfg->button_name, kDisplaySize / 2, kDisplaySize / 2 - 30);
+    // button_name: large font, upper half of panel
+    display.setFont(&fonts::FreeSansBold18pt7b);
+    display.drawString(cfg->button_name, kPanelCX, kDisplaySize / 2 - 30);
 
-    // room_name: white text on black rounded-rect badge, lower half
-    display.setFont(&fonts::FreeSansBold12pt7b);
+    // room_name: white text on black rounded-rect badge, lower half of panel
+    display.setFont(&fonts::FreeSansBold9pt7b);
     {
         constexpr int kPadX = 10;
         constexpr int kPadY = 6;
         int tw = display.textWidth(cfg->room_name);
         int th = display.fontHeight();
         int cy = kDisplaySize / 2 + 20;
-        int rx = kDisplaySize / 2 - tw / 2 - kPadX;
+        int rx = kPanelCX - tw / 2 - kPadX;
         int ry = cy - th / 2 - kPadY;
         int rw = tw + kPadX * 2;
         int rh = th + kPadY * 2;
         display.fillRoundRect(rx, ry, rw, rh, 6, TFT_BLACK);
         display.setTextColor(TFT_WHITE);
-        display.drawString(cfg->room_name, kDisplaySize / 2, cy);
+        display.drawString(cfg->room_name, kPanelCX, cy);
         display.setTextColor(TFT_BLACK);
+    }
+
+    // ---- right nav column: one circle per enabled button, active = filled ----
+    if (s_ep_count > 0) {
+        int spacing = kDisplaySize / s_ep_count;
+        int radius  = std::min(spacing / 2 - 1, 7);
+        for (int i = 0; i < s_ep_count; i++) {
+            int cy = spacing / 2 + i * spacing;
+            if (i == enabled_index)
+                display.fillCircle(kNavCX, cy, radius, TFT_BLACK);
+            else
+                display.drawCircle(kNavCX, cy, radius, TFT_BLACK);
+        }
     }
 
     display.endWrite();
