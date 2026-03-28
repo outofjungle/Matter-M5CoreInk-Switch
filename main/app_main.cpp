@@ -126,16 +126,38 @@ void app_display_show_button(int enabled_index)
     display.startWrite();
     display.fillScreen(TFT_WHITE);
 
+    // button number badge: black filled circle with white number, top-left corner
+    char btn_num[12];
+    snprintf(btn_num, sizeof(btn_num), "%d", enabled_index + 1);
+    display.fillCircle(14, 14, 12, TFT_BLACK);
+    display.setFont(&fonts::FreeSans9pt7b);
     display.setTextDatum(textdatum_t::middle_center);
+    display.setTextColor(TFT_WHITE);
+    display.drawString(btn_num, 14, 14);
+
     display.setTextColor(TFT_BLACK);
 
     // button_name: large font, upper half
     display.setFont(&fonts::FreeSansBold24pt7b);
     display.drawString(cfg->button_name, kDisplaySize / 2, kDisplaySize / 2 - 30);
 
-    // room_name: smaller font, lower half
+    // room_name: white text on black rounded-rect badge, lower half
     display.setFont(&fonts::FreeSans12pt7b);
-    display.drawString(cfg->room_name, kDisplaySize / 2, kDisplaySize / 2 + 20);
+    {
+        constexpr int kPadX = 10;
+        constexpr int kPadY = 6;
+        int tw = display.textWidth(cfg->room_name);
+        int th = display.fontHeight();
+        int cy = kDisplaySize / 2 + 20;
+        int rx = kDisplaySize / 2 - tw / 2 - kPadX;
+        int ry = cy - th / 2 - kPadY;
+        int rw = tw + kPadX * 2;
+        int rh = th + kPadY * 2;
+        display.fillRoundRect(rx, ry, rw, rh, 6, TFT_BLACK);
+        display.setTextColor(TFT_WHITE);
+        display.drawString(cfg->room_name, kDisplaySize / 2, cy);
+        display.setTextColor(TFT_BLACK);
+    }
 
     display.endWrite();
     display.waitDisplay();
