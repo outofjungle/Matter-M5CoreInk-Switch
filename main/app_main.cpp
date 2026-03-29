@@ -145,7 +145,7 @@ void app_display_show_button(int enabled_index)
 
     // button_name: large font, upper half of panel
     display.setFont(&fonts::FreeSansBold18pt7b);
-    display.drawString(cfg->button_name, kPanelCX, kDisplaySize / 2 - 30);
+    display.drawString(cfg->button_name, kPanelCX, 145);
 
     // room_name: white text on black rounded-rect badge, lower half of panel
     display.setFont(&fonts::FreeSansBold9pt7b);
@@ -154,7 +154,7 @@ void app_display_show_button(int enabled_index)
         constexpr int kPadY = 6;
         int tw = display.textWidth(cfg->room_name);
         int th = display.fontHeight();
-        int cy = kDisplaySize / 2 + 20;
+        int cy = 180;
         int rx = kPanelCX - tw / 2 - kPadX;
         int ry = cy - th / 2 - kPadY;
         int rw = tw + kPadX * 2;
