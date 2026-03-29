@@ -61,10 +61,11 @@ static void write_defaults_to_nvs(void)
     char key[16];
     char num[9];
     for (int i = 0; i < MAX_BUTTONS; i++) {
+        snprintf(num, sizeof(num), "Btn %02d", i + 1);
         sw_key(key, sizeof(key), i, "l1");
-        nvs_set_str(h, key, "Button");
+        nvs_set_str(h, key, num);
 
-        snprintf(num, sizeof(num), "%d", i + 1);
+        snprintf(num, sizeof(num), "Room %02d", i + 1);
         sw_key(key, sizeof(key), i, "l2");
         nvs_set_str(h, key, num);
 
@@ -110,15 +111,13 @@ esp_err_t app_button_config_init(void)
         sw_key(key, sizeof(key), i, "l1");
         sz = sizeof(s_configs[i].button_name);
         if (nvs_get_str(h, key, s_configs[i].button_name, &sz) != ESP_OK) {
-            strncpy(s_configs[i].button_name, "Button", sizeof(s_configs[i].button_name));
+            snprintf(s_configs[i].button_name, sizeof(s_configs[i].button_name), "Btn %02d", i + 1);
         }
 
         sw_key(key, sizeof(key), i, "l2");
         sz = sizeof(s_configs[i].room_name);
-        char num_buf[9];
-        snprintf(num_buf, sizeof(num_buf), "%d", i + 1);
         if (nvs_get_str(h, key, s_configs[i].room_name, &sz) != ESP_OK) {
-            strncpy(s_configs[i].room_name, num_buf, sizeof(s_configs[i].room_name));
+            snprintf(s_configs[i].room_name, sizeof(s_configs[i].room_name), "Room %02d", i + 1);
         }
 
         sw_key(key, sizeof(key), i, "en");
@@ -135,10 +134,10 @@ esp_err_t app_button_config_init(void)
     // Sanitize in-memory values (NVS write may have stored bad data via serial)
     for (int i = 0; i < MAX_BUTTONS; i++) {
         if (s_configs[i].button_name[0] == '\0') {
-            strncpy(s_configs[i].button_name, "Button", sizeof(s_configs[i].button_name));
+            snprintf(s_configs[i].button_name, sizeof(s_configs[i].button_name), "Btn %02d", i + 1);
         }
         if (s_configs[i].room_name[0] == '\0') {
-            snprintf(s_configs[i].room_name, sizeof(s_configs[i].room_name), "%d", i + 1);
+            snprintf(s_configs[i].room_name, sizeof(s_configs[i].room_name), "Room %02d", i + 1);
         }
     }
 

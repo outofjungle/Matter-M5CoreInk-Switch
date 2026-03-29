@@ -98,6 +98,8 @@
     }
     thead th:first-child { width: 42px; text-align: center; }
     thead th:last-child  { width: 72px; text-align: center; }
+    .btn-reset { background: none; border: 1px solid #aaa; border-radius: 4px; cursor: pointer; padding: 1px 6px; font-size: 0.85em; color: #555; }
+    .btn-reset:hover { background: #eee; }
 
     tbody tr:nth-child(even) { background: #fafafa; }
 
@@ -378,6 +380,7 @@
           <th>Button Name (up to 8 chars)</th>
           <th>Room Name (up to 16 chars)</th>
           <th>Enabled</th>
+          <th>Reset</th>
         </tr>
       </thead>
       <tbody id="slots">
@@ -600,17 +603,31 @@ const configSection = document.getElementById('config-section');
 const cardMsg       = document.getElementById('msg').parentElement;
 
 // Build table rows
+function slotDefault(i) {
+  const n = String(i + 1).padStart(2, '0');
+  return { l1: `Btn ${n}`, l2: `Room ${n}`, en: i < 4 };
+}
+
 for (let i = 0; i < MAX_SLOTS; i++) {
+  const d = slotDefault(i);
   const tr = document.createElement('tr');
   tr.id = `slot-${i}`;
   tr.innerHTML = `
     <td>${i + 1}</td>
-    <td><input type="text" id="l1-${i}" maxlength="8" placeholder="Button"></td>
-    <td><input type="text" id="l2-${i}" maxlength="16" placeholder="${i + 1}"></td>
+    <td><input type="text" id="l1-${i}" maxlength="8" placeholder="${d.l1}"></td>
+    <td><input type="text" id="l2-${i}" maxlength="16" placeholder="${d.l2}"></td>
     <td><input type="checkbox" id="en-${i}"></td>
+    <td><button type="button" class="btn-reset" data-slot="${i}">↺</button></td>
   `;
   slotsBody.appendChild(tr);
   document.getElementById(`en-${i}`).addEventListener('change', () => updateRowStyle(i));
+  tr.querySelector('.btn-reset').addEventListener('click', () => {
+    const def = slotDefault(i);
+    document.getElementById(`l1-${i}`).value = def.l1;
+    document.getElementById(`l2-${i}`).value = def.l2;
+    document.getElementById(`en-${i}`).checked = def.en;
+    updateRowStyle(i);
+  });
 }
 
 function updateRowStyle(i) {
