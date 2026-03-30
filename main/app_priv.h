@@ -64,9 +64,10 @@ typedef enum {
 // ---------------------------------------------------------------------------
 
 struct button_slot_t {
-    char button_name[9];   // button label, upper display (max 8 chars + null)
-    char room_name[17];    // room label, lower display (max 16 chars + null)
-    bool enabled;          // if false, no Matter endpoint is created for this slot
+    char button_name[2][9]; // two display lines: [0] top word, [1] bottom word (each max 8 chars + null)
+                            // button_name[1] may be empty (single-line button name)
+    char room_name[17];     // room label, lower display (max 16 chars + null)
+    bool enabled;           // if false, no Matter endpoint is created for this slot
 };
 
 // ---------------------------------------------------------------------------
@@ -111,11 +112,13 @@ int app_driver_get_selected_button(void);
  *        Does not update in-memory state — caller should esp_restart() after.
  *
  * @param slot  0..MAX_BUTTONS-1
- * @param l1    Button name text (max 8 chars, non-empty)
+ * @param l1a   Button name word 1 (max 8 chars, non-empty)
+ * @param l1b   Button name word 2 (max 8 chars, may be empty)
  * @param l2    Room name text (max 16 chars, non-empty)
  * @param en    Enabled flag
  */
-esp_err_t app_button_nvs_write_slot(int slot, const char *l1, const char *l2, bool en);
+esp_err_t app_button_nvs_write_slot(int slot, const char *l1a, const char *l1b,
+                                     const char *l2, bool en);
 
 // ---------------------------------------------------------------------------
 // Driver API

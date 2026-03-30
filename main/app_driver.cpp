@@ -61,8 +61,11 @@ static void write_defaults_to_nvs(void)
     char key[16];
     char num[9];
     for (int i = 0; i < MAX_BUTTONS; i++) {
-        snprintf(num, sizeof(num), "Btn %02d", i + 1);
-        sw_key(key, sizeof(key), i, "l1");
+        sw_key(key, sizeof(key), i, "l1a");
+        nvs_set_str(h, key, "Button");
+
+        snprintf(num, sizeof(num), "%02d", i + 1);
+        sw_key(key, sizeof(key), i, "l1b");
         nvs_set_str(h, key, num);
 
         snprintf(num, sizeof(num), "Room %02d", i + 1);
@@ -108,10 +111,17 @@ esp_err_t app_button_config_init(void)
         size_t sz;
         uint8_t en = 0;
 
-        sw_key(key, sizeof(key), i, "l1");
-        sz = sizeof(s_configs[i].button_name);
-        if (nvs_get_str(h, key, s_configs[i].button_name, &sz) != ESP_OK) {
-            snprintf(s_configs[i].button_name, sizeof(s_configs[i].button_name), "Btn %02d", i + 1);
+        sw_key(key, sizeof(key), i, "l1a");
+        sz = sizeof(s_configs[i].button_name[0]);
+        if (nvs_get_str(h, key, s_configs[i].button_name[0], &sz) != ESP_OK) {
+            strncpy(s_configs[i].button_name[0], "Button", sizeof(s_configs[i].button_name[0]) - 1);
+            s_configs[i].button_name[0][sizeof(s_configs[i].button_name[0]) - 1] = '\0';
+        }
+
+        sw_key(key, sizeof(key), i, "l1b");
+        sz = sizeof(s_configs[i].button_name[1]);
+        if (nvs_get_str(h, key, s_configs[i].button_name[1], &sz) != ESP_OK) {
+            snprintf(s_configs[i].button_name[1], sizeof(s_configs[i].button_name[1]), "%02d", i + 1);
         }
 
         sw_key(key, sizeof(key), i, "l2");
@@ -133,9 +143,11 @@ esp_err_t app_button_config_init(void)
 
     // Sanitize in-memory values (NVS write may have stored bad data via serial)
     for (int i = 0; i < MAX_BUTTONS; i++) {
-        if (s_configs[i].button_name[0] == '\0') {
-            snprintf(s_configs[i].button_name, sizeof(s_configs[i].button_name), "Btn %02d", i + 1);
+        if (s_configs[i].button_name[0][0] == '\0') {
+            strncpy(s_configs[i].button_name[0], "Button", sizeof(s_configs[i].button_name[0]) - 1);
+            s_configs[i].button_name[0][sizeof(s_configs[i].button_name[0]) - 1] = '\0';
         }
+        // button_name[1] may legitimately be empty — no fallback needed
         if (s_configs[i].room_name[0] == '\0') {
             snprintf(s_configs[i].room_name, sizeof(s_configs[i].room_name), "Room %02d", i + 1);
         }
@@ -162,14 +174,17 @@ esp_err_t app_button_config_init(void)
     return ESP_OK;
 }
 
-esp_err_t app_button_nvs_write_slot(int slot, const char *l1, const char *l2, bool en)
+esp_err_t app_button_nvs_write_slot(int slot, const char *l1a, const char *l1b,
+                                     const char *l2, bool en)
 {
     if (slot < 0 || slot >= MAX_BUTTONS) return ESP_ERR_INVALID_ARG;
     nvs_handle_t h;
     if (nvs_open(NVS_NS, NVS_READWRITE, &h) != ESP_OK) return ESP_FAIL;
     char key[16];
-    sw_key(key, sizeof(key), slot, "l1");
-    nvs_set_str(h, key, l1);
+    sw_key(key, sizeof(key), slot, "l1a");
+    nvs_set_str(h, key, l1a);
+    sw_key(key, sizeof(key), slot, "l1b");
+    nvs_set_str(h, key, l1b);
     sw_key(key, sizeof(key), slot, "l2");
     nvs_set_str(h, key, l2);
     sw_key(key, sizeof(key), slot, "en");

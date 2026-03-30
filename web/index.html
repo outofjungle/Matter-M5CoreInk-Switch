@@ -377,7 +377,7 @@
       <thead>
         <tr>
           <th>#</th>
-          <th>Button Name (up to 8 chars)</th>
+          <th>Button Name (two words, each up to 8 chars)</th>
           <th>Room Name (up to 16 chars)</th>
           <th>Enabled</th>
           <th>Reset</th>
@@ -605,7 +605,45 @@ const cardMsg       = document.getElementById('msg').parentElement;
 // Build table rows
 function slotDefault(i) {
   const n = String(i + 1).padStart(2, '0');
-  return { l1: `Btn ${n}`, l2: `Room ${n}`, en: i < 4 };
+  return { l1: `Button ${n}`, l2: `Room ${n}`, en: i < 4 };
+}
+
+// Enforce button name input constraints:
+//   word1 (up to 8 ASCII printable chars), optional space, word2 (up to 8 ASCII printable chars)
+//   No unicode. After 8 chars in word1 with no space typed, only space is accepted.
+function enforceButtonName(e) {
+  if (e.key.length > 1) return; // allow control keys (backspace, arrows, etc.)
+  const code = e.key.charCodeAt(0);
+  // Reject non-printable-ASCII
+  if (code < 32 || code > 126) { e.preventDefault(); return; }
+
+  const val = e.target.value;
+  const spaceIdx = val.indexOf(' ');
+
+  if (e.key === ' ') {
+    // Allow space only if word1 has content and no space yet
+    if (spaceIdx !== -1 || val.length === 0) e.preventDefault();
+    return;
+  }
+
+  if (spaceIdx === -1) {
+    // Typing in word1 — max 8 chars
+    if (val.length >= 8) e.preventDefault();
+  } else {
+    // Typing in word2 — max 8 chars after the space
+    if (val.length - spaceIdx - 1 >= 8) e.preventDefault();
+  }
+}
+
+// Sanitize paste: strip to ASCII printable, enforce word lengths
+function handleButtonNamePaste(e) {
+  e.preventDefault();
+  const raw = (e.clipboardData || window.clipboardData).getData('text');
+  const clean = raw.replace(/[^\x20-\x7e]/g, '');
+  const parts = clean.split(' ');
+  const w1 = parts[0].slice(0, 8);
+  const w2 = (parts[1] || '').slice(0, 8);
+  e.target.value = w2 ? `${w1} ${w2}` : w1;
 }
 
 for (let i = 0; i < MAX_SLOTS; i++) {
@@ -614,13 +652,20 @@ for (let i = 0; i < MAX_SLOTS; i++) {
   tr.id = `slot-${i}`;
   tr.innerHTML = `
     <td>${i + 1}</td>
-    <td><input type="text" id="l1-${i}" maxlength="8" placeholder="${d.l1}"></td>
+    <td><input type="text" id="l1-${i}" maxlength="17" placeholder="${d.l1}" title="Up to two words, each max 8 chars, space-separated"></td>
     <td><input type="text" id="l2-${i}" maxlength="16" placeholder="${d.l2}"></td>
     <td><input type="checkbox" id="en-${i}"></td>
     <td><button type="button" class="btn-reset" data-slot="${i}">↺</button></td>
   `;
   slotsBody.appendChild(tr);
+  const l1input = document.getElementById(`l1-${i}`);
+  l1input.value = d.l1;
+  l1input.addEventListener('keydown', enforceButtonName);
+  l1input.addEventListener('paste', handleButtonNamePaste);
+  document.getElementById(`l2-${i}`).value = d.l2;
+  document.getElementById(`en-${i}`).checked = d.en;
   document.getElementById(`en-${i}`).addEventListener('change', () => updateRowStyle(i));
+  updateRowStyle(i);
   tr.querySelector('.btn-reset').addEventListener('click', () => {
     const def = slotDefault(i);
     document.getElementById(`l1-${i}`).value = def.l1;
@@ -846,7 +891,9 @@ async function readFromDevice() {
       return;
     }
     for (let i = 0; i < MAX_SLOTS; i++) {
-      document.getElementById(`l1-${i}`).value   = slots[i].l1 ?? '';
+      const l1a = slots[i].l1a ?? '';
+      const l1b = slots[i].l1b ?? '';
+      document.getElementById(`l1-${i}`).value   = l1b ? `${l1a} ${l1b}` : l1a;
       document.getElementById(`l2-${i}`).value   = slots[i].l2 ?? '';
       document.getElementById(`en-${i}`).checked = !!slots[i].en;
       updateRowStyle(i);
@@ -878,10 +925,11 @@ function showWriteConfirm(slots) {
       const row = document.createElement('div');
       row.className = 'modal-slot-row';
       if (s.en) {
+        const btnLabel = s.l1b ? `${s.l1a} ${s.l1b}` : s.l1a;
         row.innerHTML = `
           <span class="modal-slot-num">${i + 1}</span>
           <div class="modal-slot-labels">
-            <span class="modal-slot-label">${s.l1}</span>
+            <span class="modal-slot-label">${btnLabel}</span>
             <span class="modal-slot-label">${s.l2}</span>
           </div>`;
       } else {
@@ -925,15 +973,21 @@ btnWrite.addEventListener('click', async () => {
   }
   const slots = [];
   for (let i = 0; i < MAX_SLOTS; i++) {
-    const l1 = document.getElementById(`l1-${i}`).value.trim();
-    const l2 = document.getElementById(`l2-${i}`).value.trim();
-    const en = document.getElementById(`en-${i}`).checked;
-    if (!l1)         { document.getElementById(`l1-${i}`).classList.add('error'); errorMsg = errorMsg || `Slot ${i + 1}: Button Name is empty`; }
-    if (!l2)         { document.getElementById(`l2-${i}`).classList.add('error'); errorMsg = errorMsg || `Slot ${i + 1}: Room Name is empty`; }
-    if (l1.length > 8)  { document.getElementById(`l1-${i}`).classList.add('error'); errorMsg = errorMsg || `Slot ${i + 1}: Button Name exceeds 8 characters`; }
-    if (l2.length > 16) { document.getElementById(`l2-${i}`).classList.add('error'); errorMsg = errorMsg || `Slot ${i + 1}: Room Name exceeds 16 characters`; }
+    const l1raw = document.getElementById(`l1-${i}`).value;
+    const l2    = document.getElementById(`l2-${i}`).value.trim();
+    const en    = document.getElementById(`en-${i}`).checked;
+    const parts = l1raw.trim().split(' ');
+    const l1a   = parts[0] || '';
+    const l1b   = parts[1] || '';
+    const l1El  = document.getElementById(`l1-${i}`);
+    const l2El  = document.getElementById(`l2-${i}`);
+    if (!l1a)          { l1El.classList.add('error'); errorMsg = errorMsg || `Slot ${i + 1}: Button Name is empty`; }
+    else if (l1a.length > 8)  { l1El.classList.add('error'); errorMsg = errorMsg || `Slot ${i + 1}: Button Name word 1 exceeds 8 characters`; }
+    else if (l1b.length > 8)  { l1El.classList.add('error'); errorMsg = errorMsg || `Slot ${i + 1}: Button Name word 2 exceeds 8 characters`; }
+    if (!l2)           { l2El.classList.add('error'); errorMsg = errorMsg || `Slot ${i + 1}: Room Name is empty`; }
+    else if (l2.length > 16)  { l2El.classList.add('error'); errorMsg = errorMsg || `Slot ${i + 1}: Room Name exceeds 16 characters`; }
     if (en) enabledCount++;
-    slots.push({ l1, l2, en });
+    slots.push({ l1a, l1b, l2, en });
   }
   if (errorMsg)        { msgEl.textContent = errorMsg; msgEl.className = 'error'; return; }
   if (enabledCount === 0) { msgEl.textContent = 'At least one slot must be enabled.'; msgEl.className = 'error'; return; }

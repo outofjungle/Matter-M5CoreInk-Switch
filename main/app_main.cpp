@@ -143,9 +143,15 @@ void app_display_show_button(int enabled_index)
 
     display.setTextColor(TFT_BLACK);
 
-    // button_name: large font, upper half of panel
+    // button_name: large font, two lines centered in the panel
+    // [0] above [1]; if [1] is empty, center [0] alone
     display.setFont(&fonts::FreeSansBold18pt7b);
-    display.drawString(cfg->button_name, kPanelCX, 145);
+    if (cfg->button_name[1][0] != '\0') {
+        display.drawString(cfg->button_name[0], kPanelCX, 112);
+        display.drawString(cfg->button_name[1], kPanelCX, 147);
+    } else {
+        display.drawString(cfg->button_name[0], kPanelCX, 141);
+    }
 
     // room_name: white text on black rounded-rect badge, lower half of panel
     display.setFont(&fonts::FreeSansBold9pt7b);
@@ -180,7 +186,8 @@ void app_display_show_button(int enabled_index)
 
     display.endWrite();
     display.waitDisplay();
-    ESP_LOGI("display", "Showing slot %d: '%s' / '%s'", slot, cfg->button_name, cfg->room_name);
+    ESP_LOGI("display", "Showing slot %d: '%s %s' / '%s'",
+             slot, cfg->button_name[0], cfg->button_name[1], cfg->room_name);
 }
 
 // ---------------------------------------------------------------------------
@@ -427,8 +434,9 @@ static void init_normal_mode(void)
                              ESP_LOGE(TAG, "Failed to create button endpoint slot=%d", slot));
 
         s_endpoint_ids[s_ep_count] = endpoint::get_id(ep);
-        ESP_LOGI(TAG, "Slot %d '%s %s' → endpoint %d",
-                 slot, cfg->button_name, cfg->room_name, s_endpoint_ids[s_ep_count]);
+        ESP_LOGI(TAG, "Slot %d '%s %s' / '%s' → endpoint %d",
+                 slot, cfg->button_name[0], cfg->button_name[1],
+                 cfg->room_name, s_endpoint_ids[s_ep_count]);
 
         // Fixed Label cluster — label value is "button_name room_name" (e.g. "Button 1")
         cluster::fixed_label::config_t fl_cfg = {};
@@ -436,8 +444,14 @@ static void init_normal_mode(void)
         ABORT_APP_ON_FAILURE(fl != nullptr,
                              ESP_LOGE(TAG, "Failed to create fixed_label cluster slot=%d", slot));
 
-        char label_val[26];  // 8 (button) + 1 (space) + 16 (room) + 1 (null)
-        snprintf(label_val, sizeof(label_val), "%s %s", cfg->button_name, cfg->room_name);
+        char label_val[35];  // 8 + 1 + 8 (button words) + 1 + 16 (room) + 1 (null)
+        if (cfg->button_name[1][0] != '\0') {
+            snprintf(label_val, sizeof(label_val), "%s %s %s",
+                     cfg->button_name[0], cfg->button_name[1], cfg->room_name);
+        } else {
+            snprintf(label_val, sizeof(label_val), "%s %s",
+                     cfg->button_name[0], cfg->room_name);
+        }
         write_fixed_label(s_endpoint_ids[s_ep_count], "name", label_val);
         ESP_LOGI(TAG, "Slot %d fixed label 'name'='%s' written to NVS", slot, label_val);
 

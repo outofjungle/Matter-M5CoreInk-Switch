@@ -140,9 +140,11 @@ static void handle_read(void)
     cbor_encoder_create_array(&map, &arr, MAX_BUTTONS);
     for (int i = 0; i < MAX_BUTTONS; i++) {
         const button_slot_t *cfg = app_button_get_config(i);
-        cbor_encoder_create_map(&arr, &slot_enc, 3);
-        cbor_encode_text_stringz(&slot_enc, "l1");
-        cbor_encode_text_stringz(&slot_enc, cfg ? cfg->button_name : "Button");
+        cbor_encoder_create_map(&arr, &slot_enc, 4);
+        cbor_encode_text_stringz(&slot_enc, "l1a");
+        cbor_encode_text_stringz(&slot_enc, cfg ? cfg->button_name[0] : "Button");
+        cbor_encode_text_stringz(&slot_enc, "l1b");
+        cbor_encode_text_stringz(&slot_enc, cfg ? cfg->button_name[1] : "");
         cbor_encode_text_stringz(&slot_enc, "l2");
         cbor_encode_text_stringz(&slot_enc, cfg ? cfg->room_name : "?");
         cbor_encode_text_stringz(&slot_enc, "en");
@@ -161,7 +163,8 @@ static void handle_read(void)
 // ---------------------------------------------------------------------------
 
 struct incoming_slot_t {
-    char l1[9];    // button name (max 8 chars)
+    char l1a[9];   // button name word 1 (max 8 chars)
+    char l1b[9];   // button name word 2 (max 8 chars, may be empty)
     char l2[17];   // room name (max 16 chars)
     bool en;
     bool valid;
@@ -188,7 +191,7 @@ static void handle_write(CborValue *slots_val)
         CborValue slot_map;
         cbor_value_enter_container(&arr, &slot_map);
 
-        bool has_l1 = false, has_l2 = false, has_en = false;
+        bool has_l1a = false, has_l1b = false, has_l2 = false, has_en = false;
 
         while (!cbor_value_at_end(&slot_map)) {
             if (!cbor_value_is_text_string(&slot_map)) {
@@ -201,11 +204,16 @@ static void handle_write(CborValue *slots_val)
             cbor_value_copy_text_string(&slot_map, key, &key_len, &slot_map);
             key[key_len] = '\0';
 
-            if (strcmp(key, "l1") == 0 && cbor_value_is_text_string(&slot_map)) {
-                size_t vlen = sizeof(incoming[slot].l1) - 1;
-                cbor_value_copy_text_string(&slot_map, incoming[slot].l1, &vlen, &slot_map);
-                incoming[slot].l1[vlen] = '\0';
-                has_l1 = true;
+            if (strcmp(key, "l1a") == 0 && cbor_value_is_text_string(&slot_map)) {
+                size_t vlen = sizeof(incoming[slot].l1a) - 1;
+                cbor_value_copy_text_string(&slot_map, incoming[slot].l1a, &vlen, &slot_map);
+                incoming[slot].l1a[vlen] = '\0';
+                has_l1a = true;
+            } else if (strcmp(key, "l1b") == 0 && cbor_value_is_text_string(&slot_map)) {
+                size_t vlen = sizeof(incoming[slot].l1b) - 1;
+                cbor_value_copy_text_string(&slot_map, incoming[slot].l1b, &vlen, &slot_map);
+                incoming[slot].l1b[vlen] = '\0';
+                has_l1b = true;
             } else if (strcmp(key, "l2") == 0 && cbor_value_is_text_string(&slot_map)) {
                 size_t vlen = sizeof(incoming[slot].l2) - 1;
                 cbor_value_copy_text_string(&slot_map, incoming[slot].l2, &vlen, &slot_map);
@@ -220,7 +228,7 @@ static void handle_write(CborValue *slots_val)
             }
         }
         cbor_value_leave_container(&arr, &slot_map);
-        incoming[slot].valid = has_l1 && has_l2 && has_en;
+        incoming[slot].valid = has_l1a && has_l1b && has_l2 && has_en;
     }
 
     // Validate all slots
@@ -232,12 +240,13 @@ static void handle_write(CborValue *slots_val)
             send_status("error", msg);
             return;
         }
-        if (incoming[i].l1[0] == '\0') {
+        if (incoming[i].l1a[0] == '\0') {
             char msg[32];
-            snprintf(msg, sizeof(msg), "slot %d l1 empty", i);
+            snprintf(msg, sizeof(msg), "slot %d l1a empty", i);
             send_status("error", msg);
             return;
         }
+        // l1b may be empty — no check needed
         if (incoming[i].l2[0] == '\0') {
             char msg[32];
             snprintf(msg, sizeof(msg), "slot %d l2 empty", i);
@@ -254,7 +263,8 @@ static void handle_write(CborValue *slots_val)
     // Write all slots to NVS
     for (int i = 0; i < MAX_BUTTONS; i++) {
         esp_err_t err = app_button_nvs_write_slot(i,
-                            incoming[i].l1, incoming[i].l2, incoming[i].en);
+                            incoming[i].l1a, incoming[i].l1b,
+                            incoming[i].l2, incoming[i].en);
         if (err != ESP_OK) {
             send_status("error", "NVS write failed");
             return;
