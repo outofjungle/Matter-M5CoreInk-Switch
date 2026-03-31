@@ -54,7 +54,7 @@ Research notes for setting up a Matter over WiFi device on the M5Stack Core Ink
 #define BUTTON_PWR_PIN 27    // Power button
 
 // Output peripherals
-#define LED_EXT_PIN    10    // Green LED (G10) — active HIGH
+#define LED_EXT_PIN    10    // Green LED (G10) — active LOW
 #define SPEAKER_PIN     2    // Passive buzzer
 
 // Power management
@@ -72,7 +72,7 @@ Research notes for setting up a Matter over WiFi device on the M5Stack Core Ink
 
 - **Pin:** GPIO10 (G10)
 - **Type:** Green LED
-- **Logic:** Active HIGH (set HIGH = LED on)
+- **Logic:** Active LOW (set LOW = LED on, HIGH = off)
 - **Note:** GPIO10 on a standard ESP32 module is the SPIQWP (flash Write Protect)
   pin, but on the ESP32-PICO-D4 the internal flash uses dedicated internal routing,
   so external GPIO10 is free to use as a regular output.
@@ -413,6 +413,41 @@ or lower the baud rate to 115200.
 The PICO-D4 has two LX6 cores. PRO_CPU (core 0) runs WiFi/BLE stack; APP_CPU
 (core 1) is available for application code. This helps Matter's concurrent
 networking more than a single-core RISC-V setup (ESP32-C6).
+
+---
+
+## 9. Key Source Files
+
+| File | Purpose |
+|------|---------|
+| `main/app_main.cpp` | Entry point: Matter node, Generic Switch endpoints, e-ink QR/button display |
+| `main/app_driver.cpp` | Button driver (GPIO 37/38/39), LED (GPIO 10), NVS button config |
+| `main/app_serial.cpp` | UART CBOR/SLIP serial configurator (config mode only) |
+| `main/app_reset.cpp` | Factory reset FSM (triggered via config mode boot) |
+| `main/app_priv.h` | Hardware pin definitions, shared structs and API declarations |
+| `main/icons.h` | Auto-generated 1bpp icon bitmap arrays (from `make icons`) |
+| `main/include/CHIPPairingConfig.h` | Auto-generated SPAKE2+ verifier, discriminator, PIN (from `make generate-pairing`) |
+| `main/include/CHIPProjectConfig.h` | Device vendor/product name; includes CHIPPairingConfig.h |
+| `tools/svg2icon.py` | SVG → 1bpp C array converter |
+| `scripts/generate_pairing_config.py` | SPAKE2+ verifier + QR code generator |
+| `web/index.html` | Self-contained web serial configurator UI |
+
+## 10. Build Gotchas (Docker)
+
+### Include Paths
+
+These headers have non-obvious paths inside the esp-matter Docker image:
+
+| Header | Correct Path | Wrong (will fail) |
+|--------|-------------|-------------------|
+| Matter QR payload | `<setup_payload/OnboardingCodesUtil.h>` | `<app/server/OnboardingCodesUtil.h>` |
+| QR code library | `<qrcode.h>` | `<espressif/qrcode.h>` |
+
+The QR library is managed component `espressif__qrcode` v0.2.0.
+
+### clangd / IDE Warnings
+
+ESP-IDF and esp-matter headers trigger many clangd false positives (unresolved includes, macro errors). These are **harmless** — the Docker build is authoritative. Do not add workarounds for IDE warnings.
 
 ---
 
