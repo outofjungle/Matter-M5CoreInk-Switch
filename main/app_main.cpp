@@ -115,10 +115,11 @@ static void render_qr_on_display(esp_qrcode_handle_t qrcode)
 void app_display_show_button(int enabled_index)
 {
     constexpr int kDisplaySize = 200;
-    constexpr int kNavWidth    = 20;                       // right nav column width
-    constexpr int kNavCX       = kDisplaySize - kNavWidth / 2;  // = 190
-    constexpr int kPanelWidth  = kDisplaySize - kNavWidth; // = 180
-    constexpr int kPanelCX     = kPanelWidth / 2;          // = 90
+    constexpr int kNavWidth    = 14;                       // right nav column width (r=5 dot + 2px pad each side)
+    constexpr int kNavCX       = kDisplaySize - kNavWidth / 2;  // = 193
+    constexpr int kPanelWidth  = kDisplaySize - kNavWidth; // = 186
+    constexpr int kPanelCX     = kPanelWidth / 2;          // = 93
+    constexpr int kDotR        = 5;                        // nav dot radius (fixed)
 
     int slot = app_button_get_enabled_slot(enabled_index);
     const button_slot_t *cfg = app_button_get_config(slot);
@@ -174,13 +175,12 @@ void app_display_show_button(int enabled_index)
     // ---- right nav column: one circle per enabled button, active = filled ----
     if (s_ep_count > 0) {
         int spacing = kDisplaySize / s_ep_count;
-        int radius  = std::min(spacing / 2 - 1, 7);
         for (int i = 0; i < s_ep_count; i++) {
             int cy = spacing / 2 + i * spacing;
             if (i == enabled_index)
-                display.fillCircle(kNavCX, cy, radius, TFT_BLACK);
+                display.fillCircle(kNavCX, cy, kDotR, TFT_BLACK);
             else
-                display.drawCircle(kNavCX, cy, radius, TFT_BLACK);
+                display.drawCircle(kNavCX, cy, kDotR, TFT_BLACK);
         }
     }
 
