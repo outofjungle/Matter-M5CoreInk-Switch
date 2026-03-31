@@ -131,10 +131,10 @@ static void send_status(const char *status, const char *msg)
 
 static void handle_icons(void)
 {
-    // Find the default icon index ("power", fallback 0)
+    // Find the default icon index ("button", fallback 0)
     uint8_t def_idx = 0;
     for (int i = 0; i < ICON_COUNT; i++) {
-        if (strcmp(icon_names[i], "power") == 0) { def_idx = (uint8_t)i; break; }
+        if (strcmp(icon_names[i], "button") == 0) { def_idx = (uint8_t)i; break; }
     }
 
     // Response: { status, default, icons: [ {name, idx} x ICON_COUNT ] }

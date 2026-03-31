@@ -148,7 +148,7 @@ void app_display_show_button(int enabled_index)
     // icon area: render 1bpp bitmap above button name
     constexpr int kIconSize = 78;
     constexpr int kIconX    = kPanelCX - kIconSize / 2;  // = 54
-    constexpr int kIconY    = 6;
+    constexpr int kIconY    = 8;
     {
         int icon_idx = cfg->icon_idx;
         if (icon_idx >= 0 && icon_idx < ICON_COUNT) {
@@ -157,14 +157,11 @@ void app_display_show_button(int enabled_index)
         }
     }
 
-    // button_name: large font, two lines centered in the panel
-    // [0] above [1]; if [1] is empty, center [0] alone
+    // button_name: large font, one or two lines centered in the panel
     display.setFont(&fonts::FreeSansBold18pt7b);
+    display.drawString(cfg->button_name[0], kPanelCX, 110);
     if (cfg->button_name[1][0] != '\0') {
-        display.drawString(cfg->button_name[0], kPanelCX, 110);
         display.drawString(cfg->button_name[1], kPanelCX, 145);
-    } else {
-        display.drawString(cfg->button_name[0], kPanelCX, 141);
     }
 
     // room_name: white text on black rounded-rect badge, lower half of panel

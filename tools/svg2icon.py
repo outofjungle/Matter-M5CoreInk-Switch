@@ -69,8 +69,10 @@ def svg_to_bits(svg_path: str) -> list[int]:
 
 
 def icon_name_from_path(path: str) -> str:
-    """Derive C identifier from filename: 'icons/light-bulb.svg' → 'light_bulb'"""
+    """Derive C identifier from filename: 'icons/01_light-bulb.svg' → 'light_bulb'"""
+    import re
     base = os.path.splitext(os.path.basename(path))[0]
+    base = re.sub(r"^\d+_", "", base)  # strip leading NN_ numeric prefix
     return base.replace("-", "_").replace(" ", "_")
 
 

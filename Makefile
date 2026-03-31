@@ -143,7 +143,6 @@ print(f'{d} {p}')" > /tmp/m5multipass_pairing.txt
 #------------------------------------------------------------------------------
 
 icons: ## Convert SVG icons in icons/ to main/icons.h (1-bit C arrays)
-	@test -n "$(wildcard icons/*.svg)" || echo "Warning: no SVGs found in icons/"
 	$(DOCKER_RUN) python3 /project/tools/svg2icon.py \
 		$(addprefix /project/,$(wildcard icons/*.svg)) \
 		-o /project/main/icons.h

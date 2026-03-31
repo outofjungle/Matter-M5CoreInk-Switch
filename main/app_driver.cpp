@@ -37,11 +37,11 @@ using namespace chip::app::Clusters;
 static const char *NVS_NS       = "app_state";
 static const char *NVS_SEL_KEY  = "sel_sw";
 
-// Default icon index: find "power" in icon_names[], fallback to 0
+// Default icon index: find "button" in icon_names[], fallback to 0
 static uint8_t default_icon_idx(void)
 {
     for (int i = 0; i < ICON_COUNT; i++) {
-        if (strcmp(icon_names[i], "power") == 0) return (uint8_t)i;
+        if (strcmp(icon_names[i], "button") == 0) return (uint8_t)i;
     }
     return 0;
 }
