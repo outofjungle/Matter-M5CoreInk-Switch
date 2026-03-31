@@ -349,12 +349,44 @@ static esp_err_t app_attribute_update_cb(attribute::callback_type_t type,
 // the DeviceInfoProvider can serve it via the Fixed Label cluster.
 // ---------------------------------------------------------------------------
 
-static void write_fixed_label(uint16_t endpoint_id, const char *label, const char *value)
+static void write_fixed_label(uint16_t endpoint_id, const char *label, const char *value, int slot)
 {
+    char key[20];
+    char buf[36];
+    bool needs_write = false;
+
+    // Check current values — only write if something changed or is missing
+    nvs_handle_t rh;
+    if (nvs_open("chip-factory", NVS_READONLY, &rh) == ESP_OK) {
+        uint32_t sz = 0;
+        snprintf(key, sizeof(key), "fl-sz/%x", endpoint_id);
+        if (nvs_get_u32(rh, key, &sz) != ESP_OK || sz != 1) needs_write = true;
+
+        if (!needs_write) {
+            size_t len = sizeof(buf);
+            snprintf(key, sizeof(key), "fl-k/%x/0", endpoint_id);
+            if (nvs_get_str(rh, key, buf, &len) != ESP_OK || strcmp(buf, label) != 0)
+                needs_write = true;
+        }
+        if (!needs_write) {
+            size_t len = sizeof(buf);
+            snprintf(key, sizeof(key), "fl-v/%x/0", endpoint_id);
+            if (nvs_get_str(rh, key, buf, &len) != ESP_OK || strcmp(buf, value) != 0)
+                needs_write = true;
+        }
+        nvs_close(rh);
+    } else {
+        needs_write = true;  // namespace doesn't exist yet
+    }
+
+    if (!needs_write) {
+        ESP_LOGD("fixed_label", "ep=%u label unchanged, skipping write", endpoint_id);
+        return;
+    }
+
     nvs_handle_t h;
     if (nvs_open("chip-factory", NVS_READWRITE, &h) != ESP_OK) return;
 
-    char key[20];
     // Count of labels for this endpoint
     snprintf(key, sizeof(key), "fl-sz/%x", endpoint_id);
     nvs_set_u32(h, key, 1);
@@ -367,6 +399,7 @@ static void write_fixed_label(uint16_t endpoint_id, const char *label, const cha
 
     nvs_commit(h);
     nvs_close(h);
+    ESP_LOGI(TAG, "Slot %d fixed label 'name'='%s' written to NVS", slot, value);
 }
 
 // ---------------------------------------------------------------------------
@@ -462,8 +495,7 @@ static void init_normal_mode(void)
             snprintf(label_val, sizeof(label_val), "%s %s",
                      cfg->button_name[0], cfg->room_name);
         }
-        write_fixed_label(s_endpoint_ids[s_ep_count], "name", label_val);
-        ESP_LOGI(TAG, "Slot %d fixed label 'name'='%s' written to NVS", slot, label_val);
+        write_fixed_label(s_endpoint_ids[s_ep_count], "name", label_val, slot);
 
         s_ep_count++;
     }
@@ -530,7 +562,7 @@ static void init_normal_mode(void)
     ESP_LOGI(TAG, "Discriminator: %d (0x%03X)",
              CHIP_DEVICE_CONFIG_USE_TEST_SETUP_DISCRIMINATOR,
              CHIP_DEVICE_CONFIG_USE_TEST_SETUP_DISCRIMINATOR);
-    ESP_LOGI(TAG, "Passcode: %d", CHIP_DEVICE_CONFIG_USE_TEST_SETUP_PIN_CODE);
+    ESP_LOGD(TAG, "Passcode: %d", CHIP_DEVICE_CONFIG_USE_TEST_SETUP_PIN_CODE);
     ESP_LOGI(TAG, "See docs/img/pairing_qr.png or run: make generate-pairing");
     ESP_LOGI(TAG, "==========================");
 }

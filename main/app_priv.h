@@ -20,7 +20,7 @@
 #define BUTTON_EXT_PIN   GPIO_NUM_5    // External button (also CONFIG_MODE_PIN at boot)
 
 // Status LED
-#define LED_PIN          GPIO_NUM_10   // Green LED (G10), active HIGH
+#define LED_PIN          GPIO_NUM_10   // Green LED (G10), active LOW
 
 // Power management (MUST be driven HIGH at boot to stay on battery)
 #define POWER_HOLD_PIN   GPIO_NUM_12

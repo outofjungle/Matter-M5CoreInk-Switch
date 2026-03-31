@@ -113,7 +113,7 @@ static void send_status(const char *status, const char *msg)
     uint8_t cbor_buf[128];
     CborEncoder enc, map;
     cbor_encoder_init(&enc, cbor_buf, sizeof(cbor_buf), 0);
-    cbor_encoder_create_map(&enc, &map, msg ? 3 : 2);
+    cbor_encoder_create_map(&enc, &map, msg ? 2 : 1);
     cbor_encode_text_stringz(&map, "status");
     cbor_encode_text_stringz(&map, status);
     if (msg) {

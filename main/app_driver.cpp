@@ -70,23 +70,36 @@ static void write_defaults_to_nvs(void)
 
     char key[16];
     char num[9];
-    for (int i = 0; i < MAX_BUTTONS; i++) {
+    esp_err_t err = ESP_OK;
+    for (int i = 0; i < MAX_BUTTONS && err == ESP_OK; i++) {
         sw_key(key, sizeof(key), i, "l1a");
-        nvs_set_str(h, key, "Button");
+        err = nvs_set_str(h, key, "Button");
 
         snprintf(num, sizeof(num), "%02d", i + 1);
-        sw_key(key, sizeof(key), i, "l1b");
-        nvs_set_str(h, key, num);
+        if (err == ESP_OK) {
+            sw_key(key, sizeof(key), i, "l1b");
+            err = nvs_set_str(h, key, num);
+        }
 
         snprintf(num, sizeof(num), "Room %02d", i + 1);
-        sw_key(key, sizeof(key), i, "l2");
-        nvs_set_str(h, key, num);
+        if (err == ESP_OK) {
+            sw_key(key, sizeof(key), i, "l2");
+            err = nvs_set_str(h, key, num);
+        }
+        if (err == ESP_OK) {
+            sw_key(key, sizeof(key), i, "en");
+            err = nvs_set_u8(h, key, (i < 4) ? 1 : 0);
+        }
+        if (err == ESP_OK) {
+            sw_key(key, sizeof(key), i, "icon");
+            err = nvs_set_u8(h, key, default_icon_idx());
+        }
+    }
 
-        sw_key(key, sizeof(key), i, "en");
-        nvs_set_u8(h, key, (i < 4) ? 1 : 0);
-
-        sw_key(key, sizeof(key), i, "icon");
-        nvs_set_u8(h, key, default_icon_idx());
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "NVS default write failed (err=%d) — skipping commit", err);
+        nvs_close(h);
+        return;
     }
 
     nvs_commit(h);
@@ -199,16 +212,33 @@ esp_err_t app_button_nvs_write_slot(int slot, const char *l1a, const char *l1b,
     nvs_handle_t h;
     if (nvs_open(NVS_NS, NVS_READWRITE, &h) != ESP_OK) return ESP_FAIL;
     char key[16];
+    esp_err_t err = ESP_OK;
+
     sw_key(key, sizeof(key), slot, "l1a");
-    nvs_set_str(h, key, l1a);
-    sw_key(key, sizeof(key), slot, "l1b");
-    nvs_set_str(h, key, l1b);
-    sw_key(key, sizeof(key), slot, "l2");
-    nvs_set_str(h, key, l2);
-    sw_key(key, sizeof(key), slot, "en");
-    nvs_set_u8(h, key, en ? 1 : 0);
-    sw_key(key, sizeof(key), slot, "icon");
-    nvs_set_u8(h, key, (icon_idx < ICON_COUNT) ? icon_idx : default_icon_idx());
+    err = nvs_set_str(h, key, l1a);
+    if (err == ESP_OK) {
+        sw_key(key, sizeof(key), slot, "l1b");
+        err = nvs_set_str(h, key, l1b);
+    }
+    if (err == ESP_OK) {
+        sw_key(key, sizeof(key), slot, "l2");
+        err = nvs_set_str(h, key, l2);
+    }
+    if (err == ESP_OK) {
+        sw_key(key, sizeof(key), slot, "en");
+        err = nvs_set_u8(h, key, en ? 1 : 0);
+    }
+    if (err == ESP_OK) {
+        sw_key(key, sizeof(key), slot, "icon");
+        err = nvs_set_u8(h, key, (icon_idx < ICON_COUNT) ? icon_idx : default_icon_idx());
+    }
+
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "NVS write failed for slot %d (err=%d) — skipping commit", slot, err);
+        nvs_close(h);
+        return ESP_FAIL;
+    }
+
     nvs_commit(h);
     nvs_close(h);
     return ESP_OK;
