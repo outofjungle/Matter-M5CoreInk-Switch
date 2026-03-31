@@ -17,7 +17,7 @@ RUN apt-get update && apt-get install -y \
 # Install Python dependencies for pairing code generation into the IDF venv.
 # The IDF entrypoint activates /opt/espressif/tools/python_env/idf5.4_py3.12_env/,
 # so system-level pip installs are invisible at runtime — use the venv pip directly.
-RUN /opt/espressif/tools/python_env/idf5.4_py3.12_env/bin/pip install qrcode pillow
+RUN /opt/espressif/tools/python_env/idf5.4_py3.12_env/bin/pip install qrcode pillow cairosvg
 
 # Set working directory (matches docker-compose.yml)
 WORKDIR /project

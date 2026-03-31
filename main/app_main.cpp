@@ -13,6 +13,7 @@
 */
 
 #include <M5GFX.h>
+#include "icons.h"
 
 #include <esp_err.h>
 #include <esp_log.h>
@@ -144,6 +145,18 @@ void app_display_show_button(int enabled_index)
 
     display.setTextColor(TFT_BLACK);
 
+    // icon area: render 1bpp bitmap above button name
+    constexpr int kIconSize = 78;
+    constexpr int kIconX    = kPanelCX - kIconSize / 2;  // = 54
+    constexpr int kIconY    = 6;
+    {
+        int icon_idx = cfg->icon_idx;
+        if (icon_idx >= 0 && icon_idx < ICON_COUNT) {
+            display.drawBitmap(kIconX, kIconY, icon_list[icon_idx],
+                               kIconSize, kIconSize, TFT_BLACK, TFT_WHITE);
+        }
+    }
+
     // button_name: large font, two lines centered in the panel
     // [0] above [1]; if [1] is empty, center [0] alone
     display.setFont(&fonts::FreeSansBold18pt7b);
@@ -180,7 +193,7 @@ void app_display_show_button(int enabled_index)
             if (i == enabled_index)
                 display.fillCircle(kNavCX, cy, kDotR, TFT_BLACK);
             else
-                display.drawCircle(kNavCX, cy, kDotR, TFT_BLACK);
+                display.fillCircle(kNavCX, cy, kDotR, TFT_LIGHTGREY);
         }
     }
 

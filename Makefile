@@ -8,7 +8,7 @@
 #   make flash, make erase, make monitor
 
 .PHONY: all build clean fullclean rebuild flash monitor erase \
-        menuconfig generate-pairing shell image-build image-pull image-status help
+        menuconfig generate-pairing icons shell image-build image-pull image-status help
 
 # Default target
 all: build
@@ -139,6 +139,16 @@ print(f'{d} {p}')" > /tmp/m5multipass_pairing.txt
 	rm -f /tmp/m5multipass_pairing.txt
 
 #------------------------------------------------------------------------------
+# Icon conversion
+#------------------------------------------------------------------------------
+
+icons: ## Convert SVG icons in icons/ to main/icons.h (1-bit C arrays)
+	@test -n "$(wildcard icons/*.svg)" || echo "Warning: no SVGs found in icons/"
+	$(DOCKER_RUN) python3 /project/tools/svg2icon.py \
+		$(addprefix /project/,$(wildcard icons/*.svg)) \
+		-o /project/main/icons.h
+
+#------------------------------------------------------------------------------
 # Help
 #------------------------------------------------------------------------------
 
@@ -166,6 +176,9 @@ help: ## Show this help
 	@echo "  make image-pull      Pull base Docker image"
 	@echo "  make image-status    Show Docker image info"
 	@echo "  make shell           Open bash shell in container"
+	@echo ""
+	@echo "ICONS:"
+	@echo "  make icons           Convert icons/*.svg to main/icons.h"
 	@echo ""
 	@echo "UTILITIES:"
 	@echo "  make fullclean       Full clean (build, sdkconfig, deps)"

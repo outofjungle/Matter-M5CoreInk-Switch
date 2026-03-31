@@ -68,6 +68,7 @@ struct button_slot_t {
                             // button_name[1] may be empty (single-line button name)
     char room_name[17];     // room label, lower display (max 16 chars + null)
     bool enabled;           // if false, no Matter endpoint is created for this slot
+    uint8_t icon_idx;       // index into icon_list[] in icons.h (0..ICON_COUNT-1)
 };
 
 // ---------------------------------------------------------------------------
@@ -115,10 +116,11 @@ int app_driver_get_selected_button(void);
  * @param l1a   Button name word 1 (max 8 chars, non-empty)
  * @param l1b   Button name word 2 (max 8 chars, may be empty)
  * @param l2    Room name text (max 16 chars, non-empty)
- * @param en    Enabled flag
+ * @param en       Enabled flag
+ * @param icon_idx Icon index (0..ICON_COUNT-1)
  */
 esp_err_t app_button_nvs_write_slot(int slot, const char *l1a, const char *l1b,
-                                     const char *l2, bool en);
+                                     const char *l2, bool en, uint8_t icon_idx);
 
 // ---------------------------------------------------------------------------
 // Driver API

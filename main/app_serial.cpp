@@ -25,6 +25,7 @@
 
 #include "app_priv.h"
 #include "app_serial.h"
+#include "icons.h"
 
 static const char *TAG = "app_serial";
 
@@ -125,6 +126,44 @@ static void send_status(const char *status, const char *msg)
 }
 
 // ---------------------------------------------------------------------------
+// Command: icons — return available icon catalog + default index
+// ---------------------------------------------------------------------------
+
+static void handle_icons(void)
+{
+    // Find the default icon index ("power", fallback 0)
+    uint8_t def_idx = 0;
+    for (int i = 0; i < ICON_COUNT; i++) {
+        if (strcmp(icon_names[i], "power") == 0) { def_idx = (uint8_t)i; break; }
+    }
+
+    // Response: { status, default, icons: [ {name, idx} x ICON_COUNT ] }
+    static uint8_t cbor_buf[512];
+    CborEncoder enc, map, arr, item;
+    cbor_encoder_init(&enc, cbor_buf, sizeof(cbor_buf), 0);
+    cbor_encoder_create_map(&enc, &map, 3);
+    cbor_encode_text_stringz(&map, "status");
+    cbor_encode_text_stringz(&map, "ok");
+    cbor_encode_text_stringz(&map, "default");
+    cbor_encode_int(&map, def_idx);
+    cbor_encode_text_stringz(&map, "icons");
+    cbor_encoder_create_array(&map, &arr, ICON_COUNT);
+    for (int i = 0; i < ICON_COUNT; i++) {
+        cbor_encoder_create_map(&arr, &item, 2);
+        cbor_encode_text_stringz(&item, "name");
+        cbor_encode_text_stringz(&item, icon_names[i]);
+        cbor_encode_text_stringz(&item, "idx");
+        cbor_encode_int(&item, i);
+        cbor_encoder_close_container(&arr, &item);
+    }
+    cbor_encoder_close_container(&map, &arr);
+    cbor_encoder_close_container(&enc, &map);
+    size_t len = cbor_encoder_get_buffer_size(&enc, cbor_buf);
+    send_response(cbor_buf, len);
+    ESP_LOGI(TAG, "Icons response sent (%d icons)", ICON_COUNT);
+}
+
+// ---------------------------------------------------------------------------
 // Command: read
 // ---------------------------------------------------------------------------
 
@@ -140,7 +179,7 @@ static void handle_read(void)
     cbor_encoder_create_array(&map, &arr, MAX_BUTTONS);
     for (int i = 0; i < MAX_BUTTONS; i++) {
         const button_slot_t *cfg = app_button_get_config(i);
-        cbor_encoder_create_map(&arr, &slot_enc, 4);
+        cbor_encoder_create_map(&arr, &slot_enc, 5);
         cbor_encode_text_stringz(&slot_enc, "l1a");
         cbor_encode_text_stringz(&slot_enc, cfg ? cfg->button_name[0] : "Button");
         cbor_encode_text_stringz(&slot_enc, "l1b");
@@ -149,6 +188,8 @@ static void handle_read(void)
         cbor_encode_text_stringz(&slot_enc, cfg ? cfg->room_name : "?");
         cbor_encode_text_stringz(&slot_enc, "en");
         cbor_encode_boolean(&slot_enc, cfg && cfg->enabled);
+        cbor_encode_text_stringz(&slot_enc, "icon");
+        cbor_encode_int(&slot_enc, cfg ? cfg->icon_idx : 0);
         cbor_encoder_close_container(&arr, &slot_enc);
     }
     cbor_encoder_close_container(&map, &arr);
@@ -163,10 +204,11 @@ static void handle_read(void)
 // ---------------------------------------------------------------------------
 
 struct incoming_slot_t {
-    char l1a[9];   // button name word 1 (max 8 chars)
-    char l1b[9];   // button name word 2 (max 8 chars, may be empty)
-    char l2[17];   // room name (max 16 chars)
+    char l1a[9];      // button name word 1 (max 8 chars)
+    char l1b[9];      // button name word 2 (max 8 chars, may be empty)
+    char l2[17];      // room name (max 16 chars)
     bool en;
+    uint8_t icon;     // icon index
     bool valid;
 };
 
@@ -191,7 +233,7 @@ static void handle_write(CborValue *slots_val)
         CborValue slot_map;
         cbor_value_enter_container(&arr, &slot_map);
 
-        bool has_l1a = false, has_l1b = false, has_l2 = false, has_en = false;
+        bool has_l1a = false, has_l1b = false, has_l2 = false, has_en = false, has_icon = false;
 
         while (!cbor_value_at_end(&slot_map)) {
             if (!cbor_value_is_text_string(&slot_map)) {
@@ -223,12 +265,18 @@ static void handle_write(CborValue *slots_val)
                 cbor_value_get_boolean(&slot_map, &incoming[slot].en);
                 cbor_value_advance(&slot_map);
                 has_en = true;
+            } else if (strcmp(key, "icon") == 0 && cbor_value_is_integer(&slot_map)) {
+                int icon_val = 0;
+                cbor_value_get_int(&slot_map, &icon_val);
+                cbor_value_advance(&slot_map);
+                incoming[slot].icon = (icon_val >= 0 && icon_val < ICON_COUNT) ? (uint8_t)icon_val : 0;
+                has_icon = true;
             } else {
                 cbor_value_advance(&slot_map);  // skip unknown value
             }
         }
         cbor_value_leave_container(&arr, &slot_map);
-        incoming[slot].valid = has_l1a && has_l1b && has_l2 && has_en;
+        incoming[slot].valid = has_l1a && has_l1b && has_l2 && has_en && has_icon;
     }
 
     // Validate all slots
@@ -264,7 +312,7 @@ static void handle_write(CborValue *slots_val)
     for (int i = 0; i < MAX_BUTTONS; i++) {
         esp_err_t err = app_button_nvs_write_slot(i,
                             incoming[i].l1a, incoming[i].l1b,
-                            incoming[i].l2, incoming[i].en);
+                            incoming[i].l2, incoming[i].en, incoming[i].icon);
         if (err != ESP_OK) {
             send_status("error", "NVS write failed");
             return;
@@ -326,7 +374,9 @@ static void process_frame(const uint8_t *data, size_t len)
 
     ESP_LOGI(TAG, "cmd='%s'", cmd);
 
-    if (strcmp(cmd, "read") == 0) {
+    if (strcmp(cmd, "icons") == 0) {
+        handle_icons();
+    } else if (strcmp(cmd, "read") == 0) {
         handle_read();
     } else if (strcmp(cmd, "write") == 0) {
         if (!slots_found) { send_status("error", "missing slots"); return; }

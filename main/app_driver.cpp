@@ -23,6 +23,7 @@
 #include <esp_matter_core.h>
 
 #include "app_priv.h"
+#include "icons.h"
 
 static const char *TAG = "app_driver";
 
@@ -35,6 +36,15 @@ using namespace chip::app::Clusters;
 
 static const char *NVS_NS       = "app_state";
 static const char *NVS_SEL_KEY  = "sel_sw";
+
+// Default icon index: find "power" in icon_names[], fallback to 0
+static uint8_t default_icon_idx(void)
+{
+    for (int i = 0; i < ICON_COUNT; i++) {
+        if (strcmp(icon_names[i], "power") == 0) return (uint8_t)i;
+    }
+    return 0;
+}
 
 // Key builders — caller owns the buffer
 static void sw_key(char *buf, size_t len, int slot, const char *field)
@@ -74,6 +84,9 @@ static void write_defaults_to_nvs(void)
 
         sw_key(key, sizeof(key), i, "en");
         nvs_set_u8(h, key, (i < 4) ? 1 : 0);
+
+        sw_key(key, sizeof(key), i, "icon");
+        nvs_set_u8(h, key, default_icon_idx());
     }
 
     nvs_commit(h);
@@ -134,6 +147,11 @@ esp_err_t app_button_config_init(void)
         nvs_get_u8(h, key, &en);
         s_configs[i].enabled = (en != 0);
 
+        uint8_t icon = default_icon_idx();
+        sw_key(key, sizeof(key), i, "icon");
+        nvs_get_u8(h, key, &icon);
+        s_configs[i].icon_idx = (icon < ICON_COUNT) ? icon : default_icon_idx();
+
         if (s_configs[i].enabled) {
             s_enabled_slots[s_enabled_count++] = i;
         }
@@ -175,7 +193,7 @@ esp_err_t app_button_config_init(void)
 }
 
 esp_err_t app_button_nvs_write_slot(int slot, const char *l1a, const char *l1b,
-                                     const char *l2, bool en)
+                                     const char *l2, bool en, uint8_t icon_idx)
 {
     if (slot < 0 || slot >= MAX_BUTTONS) return ESP_ERR_INVALID_ARG;
     nvs_handle_t h;
@@ -189,6 +207,8 @@ esp_err_t app_button_nvs_write_slot(int slot, const char *l1a, const char *l1b,
     nvs_set_str(h, key, l2);
     sw_key(key, sizeof(key), slot, "en");
     nvs_set_u8(h, key, en ? 1 : 0);
+    sw_key(key, sizeof(key), slot, "icon");
+    nvs_set_u8(h, key, (icon_idx < ICON_COUNT) ? icon_idx : default_icon_idx());
     nvs_commit(h);
     nvs_close(h);
     return ESP_OK;
