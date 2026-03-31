@@ -21,3 +21,6 @@ screenlog.0
 
 # Obsidian editor config
 .obsidian/
+
+# Beads / Dolt files (added by bd init)
+.beads-credential-key
