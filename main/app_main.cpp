@@ -147,8 +147,8 @@ void app_display_show_button(int enabled_index)
     // [0] above [1]; if [1] is empty, center [0] alone
     display.setFont(&fonts::FreeSansBold18pt7b);
     if (cfg->button_name[1][0] != '\0') {
-        display.drawString(cfg->button_name[0], kPanelCX, 112);
-        display.drawString(cfg->button_name[1], kPanelCX, 147);
+        display.drawString(cfg->button_name[0], kPanelCX, 110);
+        display.drawString(cfg->button_name[1], kPanelCX, 145);
     } else {
         display.drawString(cfg->button_name[0], kPanelCX, 141);
     }
