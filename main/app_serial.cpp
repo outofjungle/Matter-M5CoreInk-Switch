@@ -4,10 +4,10 @@
    Listens on UART0 for CBOR-over-SLIP frames from the web configurator.
 
    Protocol (SLIP-framed CBOR maps):
-     {cmd:"ping"}                      → {status:"ok", mode:"config", fw:"<version>"}
-     {cmd:"read"}                      → {status:"ok", slots:[{l1,l2,en}×16]}
-     {cmd:"write", slots:[{l1,l2,en}×16]} → {status:"ok"} or {status:"error",msg:"..."}
-     {cmd:"reboot"}                    → {status:"ok"} then esp_restart()
+     {cmd:"ping"}                                              → {status:"ok", mode:"config", fw:"<version>"}
+     {cmd:"read"}                                              → {status:"ok", slots:[{l1a,l1b,l2,en,icon}×16]}
+     {cmd:"write_slot", slot:N, l1a,l1b,l2,en,icon}           → {status:"ok"} or {status:"error",msg:"..."}
+     {cmd:"reboot"}                                            → {status:"ok"} then esp_restart()
 
    SLIP (RFC 1055): 0xC0 = frame delimiter, 0xDB 0xDC = escaped 0xC0,
    0xDB 0xDD = escaped 0xDB. Binary frames are distinct from ASCII log output.
@@ -40,9 +40,9 @@ static const char *TAG = "app_serial";
 
 #define RX_BUF_SIZE   512
 #define TX_BUF_SIZE   2048
-#define CBOR_RSP_MAX  1024   // max CBOR response bytes (read response ~500)
+#define CBOR_RSP_MAX  1024   // max CBOR response bytes (read response ~700)
 #define SLIP_RSP_MAX  2200   // max SLIP-encoded response (worst case 2× CBOR + 2)
-#define FRAME_MAX     600    // max incoming SLIP-decoded frame (write cmd ~500)
+#define FRAME_MAX     256    // max incoming SLIP-decoded frame (write_slot cmd ~80 bytes)
 
 // ---------------------------------------------------------------------------
 // SLIP helpers
@@ -200,127 +200,87 @@ static void handle_read(void)
 }
 
 // ---------------------------------------------------------------------------
-// Command: write
+// Command: write_slot — write a single slot to NVS
 // ---------------------------------------------------------------------------
 
-struct incoming_slot_t {
-    char l1a[9];      // button name word 1 (max 8 chars)
-    char l1b[9];      // button name word 2 (max 8 chars, may be empty)
-    char l2[17];      // room name (max 16 chars)
-    bool en;
-    uint8_t icon;     // icon index
-    bool valid;
-};
-
-static void handle_write(CborValue *slots_val)
+static void handle_write_slot(CborValue *frame_map)
 {
-    if (!cbor_value_is_array(slots_val)) {
-        send_status("error", "slots must be array");
-        return;
-    }
+    // Parse flat map: { cmd, slot, l1a, l1b, l2, en, icon }
+    int  slot     = -1;
+    char l1a[9]   = {};
+    char l1b[9]   = {};
+    char l2[17]   = {};
+    bool en       = false;
+    uint8_t icon  = 0;
+    bool has_slot = false, has_l1a = false, has_l1b = false;
+    bool has_l2   = false, has_en  = false, has_icon = false;
 
-    static incoming_slot_t incoming[MAX_BUTTONS];
-    memset(incoming, 0, sizeof(incoming));
-
-    CborValue arr;
-    cbor_value_enter_container(slots_val, &arr);
-
-    for (int slot = 0; slot < MAX_BUTTONS && !cbor_value_at_end(&arr); slot++) {
-        if (!cbor_value_is_map(&arr)) {
-            cbor_value_advance(&arr);
+    CborValue it = *frame_map;
+    while (!cbor_value_at_end(&it)) {
+        if (!cbor_value_is_text_string(&it)) {
+            cbor_value_advance(&it);
+            cbor_value_advance(&it);
             continue;
         }
-        CborValue slot_map;
-        cbor_value_enter_container(&arr, &slot_map);
+        char key[12];
+        size_t key_len = sizeof(key) - 1;
+        cbor_value_copy_text_string(&it, key, &key_len, &it);
+        key[key_len] = '\0';
 
-        bool has_l1a = false, has_l1b = false, has_l2 = false, has_en = false, has_icon = false;
-
-        while (!cbor_value_at_end(&slot_map)) {
-            if (!cbor_value_is_text_string(&slot_map)) {
-                cbor_value_advance(&slot_map);
-                cbor_value_advance(&slot_map);
-                continue;
-            }
-            char key[8];
-            size_t key_len = sizeof(key) - 1;
-            cbor_value_copy_text_string(&slot_map, key, &key_len, &slot_map);
-            key[key_len] = '\0';
-
-            if (strcmp(key, "l1a") == 0 && cbor_value_is_text_string(&slot_map)) {
-                size_t vlen = sizeof(incoming[slot].l1a) - 1;
-                cbor_value_copy_text_string(&slot_map, incoming[slot].l1a, &vlen, &slot_map);
-                incoming[slot].l1a[vlen] = '\0';
-                has_l1a = true;
-            } else if (strcmp(key, "l1b") == 0 && cbor_value_is_text_string(&slot_map)) {
-                size_t vlen = sizeof(incoming[slot].l1b) - 1;
-                cbor_value_copy_text_string(&slot_map, incoming[slot].l1b, &vlen, &slot_map);
-                incoming[slot].l1b[vlen] = '\0';
-                has_l1b = true;
-            } else if (strcmp(key, "l2") == 0 && cbor_value_is_text_string(&slot_map)) {
-                size_t vlen = sizeof(incoming[slot].l2) - 1;
-                cbor_value_copy_text_string(&slot_map, incoming[slot].l2, &vlen, &slot_map);
-                incoming[slot].l2[vlen] = '\0';
-                has_l2 = true;
-            } else if (strcmp(key, "en") == 0 && cbor_value_is_boolean(&slot_map)) {
-                cbor_value_get_boolean(&slot_map, &incoming[slot].en);
-                cbor_value_advance(&slot_map);
-                has_en = true;
-            } else if (strcmp(key, "icon") == 0 && cbor_value_is_integer(&slot_map)) {
-                int icon_val = 0;
-                cbor_value_get_int(&slot_map, &icon_val);
-                cbor_value_advance(&slot_map);
-                incoming[slot].icon = (icon_val >= 0 && icon_val < ICON_COUNT) ? (uint8_t)icon_val : 0;
-                has_icon = true;
-            } else {
-                cbor_value_advance(&slot_map);  // skip unknown value
-            }
+        if (strcmp(key, "slot") == 0 && cbor_value_is_integer(&it)) {
+            cbor_value_get_int(&it, &slot);
+            cbor_value_advance(&it);
+            has_slot = true;
+        } else if (strcmp(key, "l1a") == 0 && cbor_value_is_text_string(&it)) {
+            size_t vlen = sizeof(l1a) - 1;
+            cbor_value_copy_text_string(&it, l1a, &vlen, &it);
+            l1a[vlen] = '\0';
+            has_l1a = true;
+        } else if (strcmp(key, "l1b") == 0 && cbor_value_is_text_string(&it)) {
+            size_t vlen = sizeof(l1b) - 1;
+            cbor_value_copy_text_string(&it, l1b, &vlen, &it);
+            l1b[vlen] = '\0';
+            has_l1b = true;
+        } else if (strcmp(key, "l2") == 0 && cbor_value_is_text_string(&it)) {
+            size_t vlen = sizeof(l2) - 1;
+            cbor_value_copy_text_string(&it, l2, &vlen, &it);
+            l2[vlen] = '\0';
+            has_l2 = true;
+        } else if (strcmp(key, "en") == 0 && cbor_value_is_boolean(&it)) {
+            cbor_value_get_boolean(&it, &en);
+            cbor_value_advance(&it);
+            has_en = true;
+        } else if (strcmp(key, "icon") == 0 && cbor_value_is_integer(&it)) {
+            int icon_val = 0;
+            cbor_value_get_int(&it, &icon_val);
+            cbor_value_advance(&it);
+            icon = (icon_val >= 0 && icon_val < ICON_COUNT) ? (uint8_t)icon_val : 0;
+            has_icon = true;
+        } else {
+            cbor_value_advance(&it);  // skip cmd and unknown keys
         }
-        cbor_value_leave_container(&arr, &slot_map);
-        incoming[slot].valid = has_l1a && has_l1b && has_l2 && has_en && has_icon;
     }
 
-    // Validate all slots
-    int enabled_count = 0;
-    for (int i = 0; i < MAX_BUTTONS; i++) {
-        if (!incoming[i].valid) {
-            char msg[32];
-            snprintf(msg, sizeof(msg), "slot %d missing fields", i);
-            send_status("error", msg);
-            return;
-        }
-        if (incoming[i].l1a[0] == '\0') {
-            char msg[32];
-            snprintf(msg, sizeof(msg), "slot %d l1a empty", i);
-            send_status("error", msg);
-            return;
-        }
-        // l1b may be empty — no check needed
-        if (incoming[i].l2[0] == '\0') {
-            char msg[32];
-            snprintf(msg, sizeof(msg), "slot %d l2 empty", i);
-            send_status("error", msg);
-            return;
-        }
-        if (incoming[i].en) enabled_count++;
-    }
-    if (enabled_count == 0) {
-        send_status("error", "at least 1 slot must be enabled");
+    if (!has_slot || !has_l1a || !has_l1b || !has_l2 || !has_en || !has_icon) {
+        send_status("error", "missing fields");
         return;
     }
+    if (slot < 0 || slot >= MAX_BUTTONS) {
+        send_status("error", "slot out of range");
+        return;
+    }
+    if (l1a[0] == '\0') { send_status("error", "l1a empty"); return; }
+    if (l2[0]  == '\0') { send_status("error", "l2 empty");  return; }
 
-    // Write all slots to NVS
-    for (int i = 0; i < MAX_BUTTONS; i++) {
-        esp_err_t err = app_button_nvs_write_slot(i,
-                            incoming[i].l1a, incoming[i].l1b,
-                            incoming[i].l2, incoming[i].en, incoming[i].icon);
-        if (err != ESP_OK) {
-            send_status("error", "NVS write failed");
-            return;
-        }
+    esp_err_t err = app_button_nvs_write_slot(slot, l1a, l1b, l2, en, icon);
+    if (err != ESP_OK) {
+        send_status("error", "NVS write failed");
+        return;
     }
 
     send_status("ok", nullptr);
-    ESP_LOGI(TAG, "Write: %d slots enabled, NVS updated", enabled_count);
+    ESP_LOGI(TAG, "write_slot %d: l1a='%s' l1b='%s' l2='%s' en=%d icon=%d",
+             slot, l1a, l1b, l2, (int)en, (int)icon);
 }
 
 // ---------------------------------------------------------------------------
@@ -340,10 +300,9 @@ static void process_frame(const uint8_t *data, size_t len)
     CborValue map;
     cbor_value_enter_container(&root, &map);
 
+    // Find the "cmd" key first; pass the full map iterator to write_slot
     char cmd[16] = {};
     bool cmd_found = false;
-    CborValue slots_val = {};
-    bool slots_found = false;
 
     while (!cbor_value_at_end(&map)) {
         if (!cbor_value_is_text_string(&map)) {
@@ -361,10 +320,6 @@ static void process_frame(const uint8_t *data, size_t len)
             cbor_value_copy_text_string(&map, cmd, &cmd_len, &map);
             cmd[cmd_len] = '\0';
             cmd_found = true;
-        } else if (strcmp(key, "slots") == 0) {
-            slots_val = map;
-            slots_found = true;
-            cbor_value_advance(&map);
         } else {
             cbor_value_advance(&map);
         }
@@ -378,9 +333,12 @@ static void process_frame(const uint8_t *data, size_t len)
         handle_icons();
     } else if (strcmp(cmd, "read") == 0) {
         handle_read();
-    } else if (strcmp(cmd, "write") == 0) {
-        if (!slots_found) { send_status("error", "missing slots"); return; }
-        handle_write(&slots_val);
+    } else if (strcmp(cmd, "write_slot") == 0) {
+        // Re-parse the frame map so write_slot can walk all keys
+        CborParser p2; CborValue r2, m2;
+        cbor_parser_init(data, len, 0, &p2, &r2);
+        cbor_value_enter_container(&r2, &m2);
+        handle_write_slot(&m2);
     } else if (strcmp(cmd, "ping") == 0) {
         const esp_app_desc_t *desc = esp_app_get_description();
         uint8_t cbor_buf[128];

@@ -1039,10 +1039,15 @@ btnWrite.addEventListener('click', async () => {
 
   setState('WRITING');
   try {
-    const writeResp = await sendCommand({ cmd: 'write', slots }, 8000);
-    if (writeResp.status !== 'ok') {
-      setState('ERROR', 'Write error: ' + (writeResp.msg || writeResp.status));
-      return;
+    for (let i = 0; i < MAX_SLOTS; i++) {
+      msgEl.textContent = `Writing slot ${i + 1} / ${MAX_SLOTS}…`;
+      msgEl.className = '';
+      const { l1a, l1b, l2, en, icon } = slots[i];
+      const resp = await sendCommand({ cmd: 'write_slot', slot: i, l1a, l1b, l2, en, icon });
+      if (resp.status !== 'ok') {
+        setState('ERROR', `Slot ${i + 1} write error: ` + (resp.msg || resp.status));
+        return;
+      }
     }
     setState('REBOOTING');
     await new Promise(r => setTimeout(r, 300));
