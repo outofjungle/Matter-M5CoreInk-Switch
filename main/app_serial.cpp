@@ -158,6 +158,11 @@ static void handle_icons(void)
     }
     cbor_encoder_close_container(&map, &arr);
     cbor_encoder_close_container(&enc, &map);
+    if (cbor_encoder_get_extra_bytes_needed(&enc) != 0) {
+        ESP_LOGE(TAG, "Icons response truncated — buffer too small");
+        send_status("error", "response too large");
+        return;
+    }
     size_t len = cbor_encoder_get_buffer_size(&enc, cbor_buf);
     send_response(cbor_buf, len);
     ESP_LOGI(TAG, "Icons response sent (%d icons)", ICON_COUNT);
@@ -194,6 +199,11 @@ static void handle_read(void)
     }
     cbor_encoder_close_container(&map, &arr);
     cbor_encoder_close_container(&enc, &map);
+    if (cbor_encoder_get_extra_bytes_needed(&enc) != 0) {
+        ESP_LOGE(TAG, "Read response truncated — buffer too small");
+        send_status("error", "response too large");
+        return;
+    }
     size_t len = cbor_encoder_get_buffer_size(&enc, cbor_buf);
     send_response(cbor_buf, len);
     ESP_LOGI(TAG, "Read response sent (%d CBOR bytes)", (int)len);
@@ -233,18 +243,21 @@ static void handle_write_slot(CborValue *frame_map)
             has_slot = true;
         } else if (strcmp(key, "l1a") == 0 && cbor_value_is_text_string(&it)) {
             size_t vlen = sizeof(l1a) - 1;
-            cbor_value_copy_text_string(&it, l1a, &vlen, &it);
+            CborError ce = cbor_value_copy_text_string(&it, l1a, &vlen, &it);
             l1a[vlen] = '\0';
+            if (ce == CborErrorOutOfMemory) { send_status("error", "l1a too long"); return; }
             has_l1a = true;
         } else if (strcmp(key, "l1b") == 0 && cbor_value_is_text_string(&it)) {
             size_t vlen = sizeof(l1b) - 1;
-            cbor_value_copy_text_string(&it, l1b, &vlen, &it);
+            CborError ce = cbor_value_copy_text_string(&it, l1b, &vlen, &it);
             l1b[vlen] = '\0';
+            if (ce == CborErrorOutOfMemory) { send_status("error", "l1b too long"); return; }
             has_l1b = true;
         } else if (strcmp(key, "l2") == 0 && cbor_value_is_text_string(&it)) {
             size_t vlen = sizeof(l2) - 1;
-            cbor_value_copy_text_string(&it, l2, &vlen, &it);
+            CborError ce = cbor_value_copy_text_string(&it, l2, &vlen, &it);
             l2[vlen] = '\0';
+            if (ce == CborErrorOutOfMemory) { send_status("error", "l2 too long"); return; }
             has_l2 = true;
         } else if (strcmp(key, "en") == 0 && cbor_value_is_boolean(&it)) {
             cbor_value_get_boolean(&it, &en);

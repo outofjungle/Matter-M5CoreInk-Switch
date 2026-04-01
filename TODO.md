@@ -12,12 +12,12 @@
 ## P2 — Medium
 
 - [ ] **No OTA update mechanism despite OTA partitions** — `partitions.csv` has `ota_0`/`ota_1` slots and `esp_matter_ota.h` is included, but no OTA logic is implemented. Add `esp_https_ota` or document the intended update path.
-- [ ] **`handle_read()` CBOR may silently truncate at 1024 bytes** — `app_serial.cpp:43,172`: TinyCBOR truncates silently when buffer fills. Add `cbor_encoder_get_extra_bytes_needed(&enc) == 0` check after encoding; send error response if non-zero.
-- [ ] **`handle_icons()` CBOR buffer has no overflow check** — `app_serial.cpp:141`: 512-byte static buffer, same silent-truncation risk as above.
+- [x] **`handle_read()` CBOR may silently truncate at 1024 bytes** — `app_serial.cpp:43,172`: TinyCBOR truncates silently when buffer fills. Add `cbor_encoder_get_extra_bytes_needed(&enc) == 0` check after encoding; send error response if non-zero.
+- [x] **`handle_icons()` CBOR buffer has no overflow check** — `app_serial.cpp:141`: 512-byte static buffer, same silent-truncation risk as above.
 - [ ] **Live credentials committed to git** — `CHIPPairingConfig.h` (passcode, discriminator) and `docs/img/pairing_qr.png` are real device credentials. Add both to `.gitignore`; document `make generate-pairing` as required before each deployment.
-- [ ] **`handle_write_slot()` silently truncates oversized strings** — `app_serial.cpp:234-261`: `cbor_value_copy_text_string` truncates strings that exceed field capacity without error. Compare `vlen` against buffer capacity after copy; if truncated, send `{status:"error",msg:"field too long"}`.
-- [ ] **Webapp `sendCommand` orphans pending promise** — `web/index.html:818`: if a second command is sent before the first resolves, old `pendingResolve`/`pendingReject` are silently overwritten. Reject the old promise before overwriting.
-- [ ] **Webapp `SlipDecoder` has no frame size limit** — `web/index.html:556`: `this.buf` grows unbounded on a malformed stream (no SLIP_END). Add a max frame size (e.g. 4096 bytes); reset and log on overflow.
+- [x] **`handle_write_slot()` silently truncates oversized strings** — `app_serial.cpp:234-261`: `cbor_value_copy_text_string` truncates strings that exceed field capacity without error. Compare `vlen` against buffer capacity after copy; if truncated, send `{status:"error",msg:"field too long"}`.
+- [x] **Webapp `sendCommand` orphans pending promise** — `web/index.html:818`: if a second command is sent before the first resolves, old `pendingResolve`/`pendingReject` are silently overwritten. Reject the old promise before overwriting.
+- [x] **Webapp `SlipDecoder` has no frame size limit** — `web/index.html:556`: `this.buf` grows unbounded on a malformed stream (no SLIP_END). Add a max frame size (e.g. 4096 bytes); reset and log on overflow.
 
 ## P3 — Low
 

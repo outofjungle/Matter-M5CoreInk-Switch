@@ -535,10 +535,11 @@ const CBOR = (() => {
 // SLIP framing (RFC 1055)
 // ---------------------------------------------------------------------------
 
-const SLIP_END     = 0xC0;
-const SLIP_ESC     = 0xDB;
-const SLIP_ESC_END = 0xDC;
-const SLIP_ESC_ESC = 0xDD;
+const SLIP_END       = 0xC0;
+const SLIP_ESC       = 0xDB;
+const SLIP_ESC_END   = 0xDC;
+const SLIP_ESC_ESC   = 0xDD;
+const SLIP_MAX_FRAME = 4096;  // max decoded frame bytes; reset decoder if exceeded
 
 function slipEncode(data) {
   const out = [SLIP_END];
@@ -579,6 +580,12 @@ class SlipDecoder {
           this.esc = true;
         } else {
           this.buf.push(b);
+        }
+        if (this.buf.length > SLIP_MAX_FRAME) {
+          log('[slip] frame overflow — discarding');
+          this.buf = [];
+          this.inFrame = false;
+          this.esc = false;
         }
       }
     }
@@ -818,6 +825,12 @@ function onSlipFrame(frame) {
 function sendCommand(obj, timeoutMs = 5000) {
   return new Promise((resolve, reject) => {
     if (!writer) { reject(new Error('Not connected')); return; }
+    if (pendingReject) {
+      clearTimeout(pendingTimeout);
+      pendingReject(new Error('Superseded by new command'));
+      pendingResolve = null;
+      pendingReject  = null;
+    }
     pendingResolve = resolve;
     pendingReject  = reject;
     pendingTimeout = setTimeout(() => {
