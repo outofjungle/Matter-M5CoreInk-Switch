@@ -56,7 +56,6 @@ typedef enum {
 
 // LED blink half-periods (ms) — time LED spends in each on/off state
 #define LED_BLINK_FAST_MS    250   // 2 Hz  — uncommissioned / pairing mode
-#define LED_BLINK_SLOW_MS   1000   // 0.5 Hz — commissioned
 
 // ---------------------------------------------------------------------------
 // Button slot config struct
@@ -125,8 +124,6 @@ esp_err_t app_button_nvs_write_slot(int slot, const char *l1a, const char *l1b,
 // ---------------------------------------------------------------------------
 // Driver API
 // ---------------------------------------------------------------------------
-
-typedef void *app_driver_handle_t;
 
 /**
  * @brief Initialize all three physical buttons.

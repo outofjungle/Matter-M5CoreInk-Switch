@@ -21,12 +21,12 @@
 
 ## P3 — Low
 
-- [ ] **`make monitor` logs accumulate without rotation** — `Makefile:86`: `screen -L` appends to `screenlog.0` forever. Add a `clean-logs` target or use a timestamped log filename.
-- [ ] **`init_normal_mode()` is 134 lines** — `app_main.cpp:402–536`: extract endpoint-creation loop and display init into separate static functions.
-- [ ] **`generate-pairing` uses `exec()` in Python one-liner** — `Makefile:110`: replace `exec('while ...')` with a proper loop or standalone script.
-- [ ] **Remove unused `app_driver_handle_t` typedef** — `app_priv.h:129`: leftover from esp-matter template, never used.
-- [ ] **Remove unused `LED_BLINK_SLOW_MS` constant** — `app_priv.h:59`: defined but never referenced; only `LED_BLINK_FAST_MS` is used.
-- [ ] **Remove `led_set()` wrapper** — `app_driver.cpp:293`: trivial one-line wrapper around `app_driver_led_set()`; call it directly.
-- [ ] **Remove duplicate `s_endpoint_ids` array** — `app_main.cpp:58`: static array becomes dead state after being copied into `app_driver.cpp`'s own array during init. Replace with a local variable.
-- [ ] **Standardize constant naming** — mixed conventions: `k_timeout_seconds` (snake_case) vs `kDisplaySize` (CamelCase) vs `NVS_NS`/`NVS_SEL_KEY` (SCREAMING_CASE on non-macros). Pick one style and apply consistently.
-- [ ] **Bump `label_val[35]` buffer** — `app_main.cpp:457`: buffer is exactly at capacity with max-length fields (zero margin). Increase to 36 or derive size from field constants.
+- [x] **`make monitor` logs accumulate without rotation** — `Makefile:86`: archive existing `screenlog.0` to `screenlog.YYYYMMDDHHMMSS` before each session; `.gitignore` covers `screenlog.*`.
+- [x] **`init_normal_mode()` is 134 lines** — extracted into `create_switch_endpoints()` and `init_display_post_matter()` static helpers.
+- [x] **`generate-pairing` uses `exec()` in Python one-liner** — replaced with a proper `while` loop.
+- [x] **Remove unused `app_driver_handle_t` typedef** — removed from `app_priv.h`.
+- [x] **Remove unused `LED_BLINK_SLOW_MS` constant** — removed from `app_priv.h`.
+- [x] **Remove `led_set()` wrapper** — removed; all call sites use `app_driver_led_set()` directly.
+- [x] **Remove duplicate `s_endpoint_ids` array** — removed static array from file scope; now a local in `init_normal_mode()`.
+- [x] **Standardize constant naming** — renamed `k_timeout_seconds` → `kTimeoutSeconds`, `NVS_NS` → `kNvsNs`, `NVS_SEL_KEY` → `kNvsSelKey`.
+- [x] **Bump `label_val[35]` buffer** — increased to 36 bytes with safety margin comment.

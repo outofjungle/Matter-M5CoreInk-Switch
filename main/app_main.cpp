@@ -52,10 +52,9 @@ using namespace esp_matter::attribute;
 using namespace esp_matter::endpoint;
 using namespace chip::app::Clusters;
 
-constexpr auto k_timeout_seconds = 300;
+constexpr auto kTimeoutSeconds = 300;
 
-// Endpoint IDs for enabled buttons, built dynamically at boot
-static uint16_t s_endpoint_ids[MAX_BUTTONS] = {0};
+// Count of enabled endpoints — used by app_display_show_button for nav dots
 static int s_ep_count = 0;
 
 // ---------------------------------------------------------------------------
@@ -271,10 +270,10 @@ static void app_event_cb(const ChipDeviceEvent *event, intptr_t arg)
         if (chip::Server::GetInstance().GetFabricTable().FabricCount() == 0) {
             chip::CommissioningWindowManager &commissionMgr =
                 chip::Server::GetInstance().GetCommissioningWindowManager();
-            constexpr auto kTimeoutSeconds = chip::System::Clock::Seconds16(k_timeout_seconds);
+            constexpr auto kTimeoutClock = chip::System::Clock::Seconds16(kTimeoutSeconds);
             if (!commissionMgr.IsCommissioningWindowOpen()) {
                 CHIP_ERROR err = commissionMgr.OpenBasicCommissioningWindow(
-                    kTimeoutSeconds,
+                    kTimeoutClock,
                     chip::CommissioningWindowAdvertisement::kDnssdOnly);
                 if (err != CHIP_NO_ERROR) {
                     ESP_LOGE(TAG, "Failed to open commissioning window: %" CHIP_ERROR_FORMAT,
@@ -429,16 +428,13 @@ static void init_config_mode(void)
 }
 
 // ---------------------------------------------------------------------------
-// NORMAL mode init (full Matter stack)
+// NORMAL mode init helpers
 // ---------------------------------------------------------------------------
 
-static void init_normal_mode(void)
+// Create one Generic Switch endpoint per enabled button slot; populate
+// s_endpoint_ids[] and s_ep_count. Returns the Matter node on success.
+static node_t *create_switch_endpoints(uint16_t *ep_ids)
 {
-    esp_err_t err = ESP_OK;
-
-    // ----------------------------------------------------------------
-    // Create Matter node
-    // ----------------------------------------------------------------
     node::config_t node_config = {};
     strncpy(node_config.root_node.basic_information.node_label, "M5 Multipass",
             sizeof(node_config.root_node.basic_information.node_label) - 1);
@@ -449,16 +445,6 @@ static void init_normal_mode(void)
     ABORT_APP_ON_FAILURE(node != nullptr,
                          ESP_LOGE(TAG, "Failed to create Matter node"));
 
-    // ----------------------------------------------------------------
-    // Load button config from NVS (must be after nvs_flash_init)
-    // ----------------------------------------------------------------
-    err = app_button_config_init();
-    ABORT_APP_ON_FAILURE(err == ESP_OK,
-                         ESP_LOGE(TAG, "Failed to init button config: %d", err));
-
-    // ----------------------------------------------------------------
-    // Create Generic Switch endpoints for enabled slots only
-    // ----------------------------------------------------------------
     s_ep_count = 0;
     for (int slot = 0; slot < MAX_BUTTONS; slot++) {
         const button_slot_t *cfg = app_button_get_config(slot);
@@ -476,18 +462,18 @@ static void init_normal_mode(void)
         ABORT_APP_ON_FAILURE(ep != nullptr,
                              ESP_LOGE(TAG, "Failed to create button endpoint slot=%d", slot));
 
-        s_endpoint_ids[s_ep_count] = endpoint::get_id(ep);
+        ep_ids[s_ep_count] = endpoint::get_id(ep);
         ESP_LOGI(TAG, "Slot %d '%s %s' / '%s' → endpoint %d",
                  slot, cfg->button_name[0], cfg->button_name[1],
-                 cfg->room_name, s_endpoint_ids[s_ep_count]);
+                 cfg->room_name, ep_ids[s_ep_count]);
 
-        // Fixed Label cluster — label value is "button_name room_name" (e.g. "Button 1")
+        // Fixed Label cluster — label value is "button_name room_name"
         cluster::fixed_label::config_t fl_cfg = {};
         cluster_t *fl = cluster::fixed_label::create(ep, &fl_cfg, CLUSTER_FLAG_SERVER);
         ABORT_APP_ON_FAILURE(fl != nullptr,
                              ESP_LOGE(TAG, "Failed to create fixed_label cluster slot=%d", slot));
 
-        char label_val[35];  // 8 + 1 + 8 (button words) + 1 + 16 (room) + 1 (null)
+        char label_val[36];  // 8 + 1 + 8 (button words) + 1 + 16 (room) + 1 (null) + 1 margin
         if (cfg->button_name[1][0] != '\0') {
             snprintf(label_val, sizeof(label_val), "%s %s %s",
                      cfg->button_name[0], cfg->button_name[1], cfg->room_name);
@@ -495,23 +481,67 @@ static void init_normal_mode(void)
             snprintf(label_val, sizeof(label_val), "%s %s",
                      cfg->button_name[0], cfg->room_name);
         }
-        write_fixed_label(s_endpoint_ids[s_ep_count], "name", label_val, slot);
+        write_fixed_label(ep_ids[s_ep_count], "name", label_val, slot);
 
         s_ep_count++;
     }
 
     ESP_LOGI(TAG, "Created %d Generic Switch endpoints", s_ep_count);
+    return node;
+}
 
-    // ----------------------------------------------------------------
-    // Initialise buttons
-    // ----------------------------------------------------------------
+// Show QR code (uncommissioned) or button selector (already commissioned).
+static void init_display_post_matter(void)
+{
+    bool already_commissioned =
+        chip::Server::GetInstance().GetFabricTable().FabricCount() > 0;
+
+    if (already_commissioned) {
+        ESP_LOGI(TAG, "Already commissioned — showing button selector");
+        app_display_show_button(app_driver_get_selected_button());
+        return;
+    }
+
+    // Not yet commissioned — render QR code on e-ink
+    char qr_buf[128];
+    chip::MutableCharSpan qr_span(qr_buf);
+    CHIP_ERROR chip_err = GetQRCode(qr_span, chip::RendezvousInformationFlags(
+        chip::RendezvousInformationFlag::kBLE));
+    if (chip_err != CHIP_NO_ERROR) {
+        ESP_LOGW(TAG, "Failed to get QR payload: %" CHIP_ERROR_FORMAT, chip_err.Format());
+        return;
+    }
+
+    ESP_LOGI(TAG, "Matter QR payload: %.*s", (int)qr_span.size(), qr_span.data());
+    s_manual_pairing_code = CHIP_DEVICE_CONFIG_MANUAL_PAIRING_CODE;
+    esp_qrcode_config_t qr_cfg = {
+        .display_func        = render_qr_on_display,
+        .max_qrcode_version  = 10,
+        .qrcode_ecc_level    = ESP_QRCODE_ECC_MED,
+        .user_data           = nullptr,
+    };
+    if (esp_qrcode_generate(&qr_cfg, qr_buf) != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to render QR code on display");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// NORMAL mode init (full Matter stack)
+// ---------------------------------------------------------------------------
+
+static void init_normal_mode(void)
+{
+    esp_err_t err = app_button_config_init();
+    ABORT_APP_ON_FAILURE(err == ESP_OK,
+                         ESP_LOGE(TAG, "Failed to init button config: %d", err));
+
+    uint16_t s_endpoint_ids[MAX_BUTTONS] = {};
+    create_switch_endpoints(s_endpoint_ids);
+
     err = app_driver_buttons_init(s_endpoint_ids, s_ep_count, app_display_show_button);
     ABORT_APP_ON_FAILURE(err == ESP_OK,
                          ESP_LOGE(TAG, "Failed to init buttons: %d", err));
 
-    // ----------------------------------------------------------------
-    // Start Matter
-    // ----------------------------------------------------------------
     err = esp_matter::start(app_event_cb);
     ABORT_APP_ON_FAILURE(err == ESP_OK,
                          ESP_LOGE(TAG, "Failed to start Matter: %d", err));
@@ -521,39 +551,7 @@ static void init_normal_mode(void)
         app_driver_led_blink_start(LED_BLINK_FAST_MS);
     }
 
-    // ----------------------------------------------------------------
-    // Display: QR code if not commissioned, switch selector if already commissioned
-    // ----------------------------------------------------------------
-    {
-        bool already_commissioned =
-            chip::Server::GetInstance().GetFabricTable().FabricCount() > 0;
-
-        if (already_commissioned) {
-            ESP_LOGI(TAG, "Already commissioned — showing button selector");
-            app_display_show_button(app_driver_get_selected_button());
-        } else {
-            // Print QR payload to serial and render on e-ink
-            char qr_buf[128];
-            chip::MutableCharSpan qr_span(qr_buf);
-            CHIP_ERROR chip_err = GetQRCode(qr_span, chip::RendezvousInformationFlags(
-                chip::RendezvousInformationFlag::kBLE));
-            if (chip_err == CHIP_NO_ERROR) {
-                ESP_LOGI(TAG, "Matter QR payload: %.*s", (int)qr_span.size(), qr_span.data());
-                s_manual_pairing_code = CHIP_DEVICE_CONFIG_MANUAL_PAIRING_CODE;
-                esp_qrcode_config_t qr_cfg = {
-                    .display_func        = render_qr_on_display,
-                    .max_qrcode_version  = 10,
-                    .qrcode_ecc_level    = ESP_QRCODE_ECC_MED,
-                    .user_data           = nullptr,
-                };
-                if (esp_qrcode_generate(&qr_cfg, qr_buf) != ESP_OK) {
-                    ESP_LOGE(TAG, "Failed to render QR code on display");
-                }
-            } else {
-                ESP_LOGW(TAG, "Failed to get QR payload: %" CHIP_ERROR_FORMAT, chip_err.Format());
-            }
-        }
-    }
+    init_display_post_matter();
 
     const esp_app_desc_t *app_desc = esp_app_get_description();
     ESP_LOGI(TAG, "M5 Multipass v%s started — %d Generic Switch endpoints",

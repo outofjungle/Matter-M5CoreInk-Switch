@@ -34,8 +34,8 @@ using namespace chip::app::Clusters;
 // NVS keys
 // ---------------------------------------------------------------------------
 
-static const char *NVS_NS       = "app_state";
-static const char *NVS_SEL_KEY  = "sel_sw";
+static const char *kNvsNs       = "app_state";
+static const char *kNvsSelKey   = "sel_sw";
 
 // Default icon index: find "button" in icon_names[], fallback to 0
 static uint8_t default_icon_idx(void)
@@ -63,7 +63,7 @@ static int s_enabled_count = 0;
 static void write_defaults_to_nvs(void)
 {
     nvs_handle_t h;
-    if (nvs_open(NVS_NS, NVS_READWRITE, &h) != ESP_OK) {
+    if (nvs_open(kNvsNs, NVS_READWRITE, &h) != ESP_OK) {
         ESP_LOGE(TAG, "Failed to open NVS for default write");
         return;
     }
@@ -113,7 +113,7 @@ esp_err_t app_button_config_init(void)
     char key[16];
 
     // First-boot detection: check if slot 0 enabled key exists
-    esp_err_t probe_err = nvs_open(NVS_NS, NVS_READONLY, &h);
+    esp_err_t probe_err = nvs_open(kNvsNs, NVS_READONLY, &h);
     bool first_boot = true;
     if (probe_err == ESP_OK) {
         uint8_t dummy;
@@ -127,7 +127,7 @@ esp_err_t app_button_config_init(void)
     }
 
     // Load all 16 configs
-    if (nvs_open(NVS_NS, NVS_READONLY, &h) != ESP_OK) {
+    if (nvs_open(kNvsNs, NVS_READONLY, &h) != ESP_OK) {
         ESP_LOGE(TAG, "Failed to open NVS for config load");
         return ESP_FAIL;
     }
@@ -192,7 +192,7 @@ esp_err_t app_button_config_init(void)
         s_enabled_count = 1;
         // Write correction back to NVS
         nvs_handle_t fix_h;
-        if (nvs_open(NVS_NS, NVS_READWRITE, &fix_h) == ESP_OK) {
+        if (nvs_open(kNvsNs, NVS_READWRITE, &fix_h) == ESP_OK) {
             char fix_key[16];
             sw_key(fix_key, sizeof(fix_key), 0, "en");
             nvs_set_u8(fix_h, fix_key, 1);
@@ -210,7 +210,7 @@ esp_err_t app_button_nvs_write_slot(int slot, const char *l1a, const char *l1b,
 {
     if (slot < 0 || slot >= MAX_BUTTONS) return ESP_ERR_INVALID_ARG;
     nvs_handle_t h;
-    if (nvs_open(NVS_NS, NVS_READWRITE, &h) != ESP_OK) return ESP_FAIL;
+    if (nvs_open(kNvsNs, NVS_READWRITE, &h) != ESP_OK) return ESP_FAIL;
     char key[16];
     esp_err_t err = ESP_OK;
 
@@ -276,8 +276,8 @@ int app_driver_get_selected_button(void) { return s_selected_button; }
 static void save_selected_button(int idx)
 {
     nvs_handle_t h;
-    if (nvs_open(NVS_NS, NVS_READWRITE, &h) != ESP_OK) return;
-    nvs_set_u8(h, NVS_SEL_KEY, (uint8_t)idx);
+    if (nvs_open(kNvsNs, NVS_READWRITE, &h) != ESP_OK) return;
+    nvs_set_u8(h, kNvsSelKey, (uint8_t)idx);
     nvs_commit(h);
     nvs_close(h);
 }
@@ -286,8 +286,8 @@ static int load_selected_button(void)
 {
     nvs_handle_t h;
     uint8_t val = 0;
-    if (nvs_open(NVS_NS, NVS_READONLY, &h) == ESP_OK) {
-        nvs_get_u8(h, NVS_SEL_KEY, &val);
+    if (nvs_open(kNvsNs, NVS_READONLY, &h) == ESP_OK) {
+        nvs_get_u8(h, kNvsSelKey, &val);
         nvs_close(h);
     }
     return (val < (uint8_t)s_endpoint_count) ? (int)val : 0;
@@ -320,7 +320,6 @@ void app_driver_led_set(bool on)
     gpio_set_level(LED_PIN, on ? 0 : 1);  // Active LOW
 }
 
-static void led_set(bool on) { app_driver_led_set(on); }
 
 // ---------------------------------------------------------------------------
 // LED blink (esp_timer)
@@ -332,7 +331,7 @@ static bool s_blink_state = false;
 static void blink_timer_cb(void *arg)
 {
     s_blink_state = !s_blink_state;
-    led_set(s_blink_state);
+    app_driver_led_set(s_blink_state);
 }
 
 void app_driver_led_blink_start(uint32_t half_period_ms)
@@ -347,7 +346,7 @@ void app_driver_led_blink_start(uint32_t half_period_ms)
         esp_timer_stop(s_blink_timer);
     }
     s_blink_state = false;
-    led_set(false);
+    app_driver_led_set(false);
     esp_timer_start_periodic(s_blink_timer, (uint64_t)half_period_ms * 1000ULL);
 }
 
@@ -356,7 +355,7 @@ void app_driver_led_blink_stop(void)
     if (s_blink_timer) {
         esp_timer_stop(s_blink_timer);
     }
-    led_set(false);
+    app_driver_led_set(false);
 }
 
 // ---------------------------------------------------------------------------
@@ -379,7 +378,7 @@ static button_handle_t s_handles[3];
 
 static void btn_up_press_cb(void *arg, void *data)
 {
-    led_set(true);
+    app_driver_led_set(true);
     s_selected_button = (s_selected_button + s_endpoint_count - 1) % s_endpoint_count;
     ESP_LOGI(TAG, "Nav UP → enabled[%d] (slot %d)", s_selected_button,
              app_button_get_enabled_slot(s_selected_button));
@@ -389,14 +388,14 @@ static void btn_up_press_cb(void *arg, void *data)
 
 static void btn_up_release_cb(void *arg, void *data)
 {
-    led_set(false);
+    app_driver_led_set(false);
 }
 
 // --- Down button: advance selection ---
 
 static void btn_down_press_cb(void *arg, void *data)
 {
-    led_set(true);
+    app_driver_led_set(true);
     s_selected_button = (s_selected_button + 1) % s_endpoint_count;
     ESP_LOGI(TAG, "Nav DOWN → enabled[%d] (slot %d)", s_selected_button,
              app_button_get_enabled_slot(s_selected_button));
@@ -406,7 +405,7 @@ static void btn_down_press_cb(void *arg, void *data)
 
 static void btn_down_release_cb(void *arg, void *data)
 {
-    led_set(false);
+    app_driver_led_set(false);
 }
 
 // --- Mid button: fire Matter event on selected button ---
@@ -421,7 +420,7 @@ static void btn_mid_press_down_cb(void *arg, void *data)
     ESP_LOGD(TAG, "Mid press down → enabled[%d] slot %d (ep %d)",
              s_selected_button, slot, ep);
 
-    led_set(true);
+    app_driver_led_set(true);
 
     {
         esp_matter::lock::ScopedChipStackLock chip_lock(portMAX_DELAY);
@@ -441,7 +440,7 @@ static void btn_mid_press_up_cb(void *arg, void *data)
 {
     btn_ctx_t *ctx = static_cast<btn_ctx_t *>(data);
 
-    led_set(false);
+    app_driver_led_set(false);
 
     if (ctx->long_press_active) {
         ctx->long_press_active = false;

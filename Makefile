@@ -79,8 +79,9 @@ erase: ## Erase flash (factory reset) using host esptool
 	@test -n "$(PORT)" || (echo "Error: No device found. Set PORT=<device>" && exit 1)
 	esptool --port $(PORT) erase_flash
 
-monitor: ## Serial monitor with screen log (Ctrl+A K to exit)
+monitor: ## Serial monitor — archives previous screenlog.0, logs to fresh screenlog.0 (Ctrl+A K to exit)
 	@test -n "$(PORT)" || (echo "Error: No device found. Set PORT=<device>" && exit 1)
+	@if [ -f screenlog.0 ]; then mv screenlog.0 screenlog.$$(date +%Y%m%d%H%M%S); fi
 	@echo "Monitoring $(PORT) — logging to screenlog.0"
 	@echo "Exit: Ctrl+A then K"
 	screen -L $(PORT) 115200
@@ -107,7 +108,7 @@ import random; \
 invalid={0,11111111,22222222,33333333,44444444,55555555,66666666,77777777,88888888,99999999,12345678,87654321}; \
 d=random.randint(0,4095); \
 p=random.randint(1,99999999); \
-exec('while p in invalid: p=random.randint(1,99999999)'); \
+while p in invalid: p=random.randint(1,99999999); \
 print(f'{d} {p}')" > /tmp/m5multipass_pairing.txt
 	@D=$$(awk '{print $$1}' /tmp/m5multipass_pairing.txt); \
 	P=$$(awk '{print $$2}' /tmp/m5multipass_pairing.txt); \
